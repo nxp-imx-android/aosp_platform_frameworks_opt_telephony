@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2008 The Android Open Source Project
+ * Copyright (C) 2015 Freescale Semiconductor, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -285,10 +286,10 @@ public abstract class IccFileHandler extends Handler implements IccConstants {
      */
 
     public void loadEFTransparent(int fileid, Message onLoaded) {
-        Message response = obtainMessage(EVENT_GET_BINARY_SIZE_DONE,
+        Message response = obtainMessage(EVENT_READ_BINARY_DONE,
                         fileid, 0, onLoaded);
 
-        mCi.iccIOForApp(COMMAND_GET_RESPONSE, fileid, getEFPath(fileid),
+        mCi.iccIOForApp(COMMAND_READ_BINARY, fileid, getEFPath(fileid),
                         0, 0, GET_RESPONSE_EF_SIZE_BYTES, null, null, mAid, response);
     }
 
