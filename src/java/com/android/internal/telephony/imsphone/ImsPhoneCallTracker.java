@@ -1937,11 +1937,9 @@ public class ImsPhoneCallTracker extends CallTracker implements ImsPullCall {
     @VisibleForTesting
     public int maybeRemapReasonCode(ImsReasonInfo reasonInfo) {
         int code = reasonInfo.getCode();
-        String extraMessage =
-                reasonInfo.getExtraMessage() == null ? "" : reasonInfo.getExtraMessage();
 
-        Pair<Integer, String> toCheck = new Pair<>(code, extraMessage);
-        Pair<Integer, String> wildcardToCheck = new Pair<>(null, extraMessage);
+        Pair<Integer, String> toCheck = new Pair<>(code, reasonInfo.getExtraMessage());
+        Pair<Integer, String> wildcardToCheck = new Pair<>(null, reasonInfo.getExtraMessage());
         if (mImsReasonCodeMap.containsKey(toCheck)) {
             int toCode = mImsReasonCodeMap.get(toCheck);
 
