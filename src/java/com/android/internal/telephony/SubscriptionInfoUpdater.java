@@ -322,13 +322,12 @@ public class SubscriptionInfoUpdater extends Handler {
 
             case EVENT_REFRESH_EMBEDDED_SUBSCRIPTIONS:
                 cardIds.add(msg.arg1);
-                Runnable r = (Runnable) msg.obj;
                 updateEmbeddedSubscriptions(cardIds, (hasChanges) -> {
                     if (hasChanges) {
                         SubscriptionController.getInstance().notifySubscriptionInfoChanged();
                     }
-                    if (r != null) {
-                        r.run();
+                    if (msg.obj != null) {
+                        ((Runnable) msg.obj).run();
                     }
                 });
                 break;
@@ -700,13 +699,6 @@ public class SubscriptionInfoUpdater extends Handler {
     @VisibleForTesting(visibility = VisibleForTesting.Visibility.PRIVATE)
     public void updateEmbeddedSubscriptions(List<Integer> cardIds,
             @Nullable UpdateEmbeddedSubsCallback callback) {
-        // Do nothing if eUICCs are disabled. (Previous entries may remain in the cache, but they
-        // are filtered out of list calls as long as EuiccManager.isEnabled returns false).
-        if (!mEuiccManager.isEnabled()) {
-            callback.run(false /* hasChanges */);
-            return;
-        }
-
         mBackgroundHandler.post(() -> {
             List<GetEuiccProfileInfoListResult> results = new ArrayList<>();
             for (int cardId : cardIds) {
@@ -743,6 +735,11 @@ public class SubscriptionInfoUpdater extends Handler {
      */
     private boolean updateEmbeddedSubscriptionsCache(GetEuiccProfileInfoListResult result) {
         if (DBG) logd("updateEmbeddedSubscriptionsCache");
+        // Do nothing if eUICCs are disabled. (Previous entries may remain in the cache, but they
+        // are filtered out of list calls as long as EuiccManager.isEnabled returns false).
+        if (!mEuiccManager.isEnabled()) {
+            return false;
+        }
 
         if (result == null) {
             // IPC to the eUICC controller failed.
