@@ -118,8 +118,8 @@ public class SubscriptionInfoUpdaterTest extends TelephonyTest {
     public void setUp() throws Exception {
         super.setUp(this.getClass().getSimpleName());
 
-        replaceInstance(SubscriptionInfoUpdater.class, "mIccId", null, new String[1]);
-        replaceInstance(SubscriptionInfoUpdater.class, "mContext", null, null);
+        replaceInstance(SubscriptionInfoUpdater.class, "sIccId", null, new String[1]);
+        replaceInstance(SubscriptionInfoUpdater.class, "sContext", null, null);
         replaceInstance(SubscriptionInfoUpdater.class, "PROJECT_SIM_NUM", null, 1);
         replaceInstance(SubscriptionInfoUpdater.class, "sSimCardState", null, new int[1]);
         replaceInstance(SubscriptionInfoUpdater.class, "sSimApplicationState", null, new int[1]);
@@ -155,7 +155,7 @@ public class SubscriptionInfoUpdaterTest extends TelephonyTest {
                 .getActiveSubIdList(/*visibleOnly*/false);
         mIccRecord = mUiccProfile.getIccRecords();
 
-        mUpdater = new SubscriptionInfoUpdater(Looper.myLooper(), mContext, new Phone[]{mPhone},
+        mUpdater = new SubscriptionInfoUpdater(Looper.myLooper(), mContext,
             new CommandsInterface[]{mSimulatedCommands}, mPackageManager);
         processAllMessages();
 
@@ -386,11 +386,10 @@ public class SubscriptionInfoUpdaterTest extends TelephonyTest {
     @SmallTest
     public void testDualSimLoaded() throws Exception {
         // Mock there is two sim cards
-        replaceInstance(SubscriptionInfoUpdater.class, "mIccId", null,
+        replaceInstance(PhoneFactory.class, "sPhones", null, new Phone[]{mPhone, mPhone});
+        replaceInstance(SubscriptionInfoUpdater.class, "sIccId", null,
                 new String[]{null, null});
         replaceInstance(SubscriptionInfoUpdater.class, "PROJECT_SIM_NUM", null, 2);
-        replaceInstance(SubscriptionInfoUpdater.class, "mPhone", null,
-                new Phone[]{mPhone, mPhone});
         replaceInstance(SubscriptionInfoUpdater.class, "sSimCardState", null,
                 new int[]{0, 0});
         replaceInstance(SubscriptionInfoUpdater.class, "sSimApplicationState", null,
@@ -447,7 +446,7 @@ public class SubscriptionInfoUpdaterTest extends TelephonyTest {
     public void testSimLockWithIccId() throws Exception {
         /* no need for IccId query */
 
-        replaceInstance(SubscriptionInfoUpdater.class, "mIccId", null,
+        replaceInstance(SubscriptionInfoUpdater.class, "sIccId", null,
                 new String[]{"89012604200000000000"});
 
         mUpdater.updateInternalIccState(

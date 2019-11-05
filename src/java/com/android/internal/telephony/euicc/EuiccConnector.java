@@ -15,6 +15,8 @@
  */
 package com.android.internal.telephony.euicc;
 
+import static android.telephony.euicc.EuiccCardManager.ResetOption;
+
 import static com.android.internal.annotations.VisibleForTesting.Visibility.PACKAGE;
 
 import android.Manifest;
@@ -143,6 +145,7 @@ public class EuiccConnector extends StateMachine implements ServiceConnection {
     private static final int CMD_RETAIN_SUBSCRIPTIONS = 110;
     private static final int CMD_GET_OTA_STATUS = 111;
     private static final int CMD_START_OTA_IF_NECESSARY = 112;
+    private static final int CMD_ERASE_SUBSCRIPTIONS_WITH_OPTIONS = 113;
 
     private static boolean isEuiccCommand(int what) {
         return what >= CMD_GET_EID;
@@ -302,7 +305,9 @@ public class EuiccConnector extends StateMachine implements ServiceConnection {
         void onUpdateNicknameComplete(int result);
     }
 
-    /** Callback class for {@link #eraseSubscriptions}. */
+    /**
+     * Callback class for {@link #eraseSubscriptions} and {@link #eraseSubscriptionsWithOptions}.
+     */
     @VisibleForTesting(visibility = PACKAGE)
     public interface EraseCommandCallback extends BaseEuiccCommandCallback {
         /** Called when the erase has completed (though it may have failed). */
@@ -318,6 +323,8 @@ public class EuiccConnector extends StateMachine implements ServiceConnection {
 
     private Context mContext;
     private PackageManager mPm;
+    private TelephonyManager mTm;
+    private SubscriptionManager mSm;
 
     private final PackageMonitor mPackageMonitor = new EuiccPackageMonitor();
     private final BroadcastReceiver mUserUnlockedReceiver = new BroadcastReceiver() {
@@ -361,6 +368,9 @@ public class EuiccConnector extends StateMachine implements ServiceConnection {
     private void init(Context context) {
         mContext = context;
         mPm = context.getPackageManager();
+        mTm = (TelephonyManager) context.getSystemService(Context.TELEPHONY_SERVICE);
+        mSm = (SubscriptionManager)
+                context.getSystemService(Context.TELEPHONY_SUBSCRIPTION_SERVICE);
 
         // Unavailable/Available both monitor for package changes and update mSelectedComponent but
         // do not need to adjust the binding.
@@ -491,10 +501,17 @@ public class EuiccConnector extends StateMachine implements ServiceConnection {
         sendMessage(CMD_UPDATE_SUBSCRIPTION_NICKNAME, cardId, 0 /* arg2 */, request);
     }
 
-    /** Asynchronously erase all profiles on the eUICC. */
+    /** Asynchronously erase operational profiles on the eUICC. */
     @VisibleForTesting(visibility = PACKAGE)
     public void eraseSubscriptions(int cardId, EraseCommandCallback callback) {
         sendMessage(CMD_ERASE_SUBSCRIPTIONS, cardId, 0 /* arg2 */, callback);
+    }
+
+    /** Asynchronously erase specific profiles on the eUICC. */
+    @VisibleForTesting(visibility = PACKAGE)
+    public void eraseSubscriptionsWithOptions(
+            int cardId, @ResetOption int options, EraseCommandCallback callback) {
+        sendMessage(CMD_ERASE_SUBSCRIPTIONS_WITH_OPTIONS, cardId, options, callback);
     }
 
     /** Asynchronously ensure that all profiles will be retained on the next factory reset. */
@@ -523,6 +540,7 @@ public class EuiccConnector extends StateMachine implements ServiceConnection {
                 } else if (getCurrentState() != mUnavailableState) {
                     transitionTo(mUnavailableState);
                 }
+                updateSubscriptionInfoListForAllAccessibleEuiccs();
                 return HANDLED;
             } else if (isEuiccCommand(message.what)) {
                 BaseEuiccCommandCallback callback = getCallback(message);
@@ -631,6 +649,7 @@ public class EuiccConnector extends StateMachine implements ServiceConnection {
                         transitionTo(mBindingState);
                     }
                 }
+                updateSubscriptionInfoListForAllAccessibleEuiccs();
                 return HANDLED;
             } else if (message.what == CMD_CONNECT_TIMEOUT) {
                 transitionTo(mAvailableState);
@@ -838,6 +857,21 @@ public class EuiccConnector extends StateMachine implements ServiceConnection {
                                     });
                             break;
                         }
+                        case CMD_ERASE_SUBSCRIPTIONS_WITH_OPTIONS: {
+                            mEuiccService.eraseSubscriptionsWithOptions(slotId,
+                                    message.arg2 /* options */,
+                                    new IEraseSubscriptionsCallback.Stub() {
+                                        @Override
+                                        public void onComplete(int result) {
+                                            sendMessage(CMD_COMMAND_COMPLETE, (Runnable) () -> {
+                                                ((EraseCommandCallback) callback)
+                                                        .onEraseComplete(result);
+                                                onCommandEnd(callback);
+                                            });
+                                        }
+                                    });
+                            break;
+                        }
                         case CMD_RETAIN_SUBSCRIPTIONS: {
                             mEuiccService.retainSubscriptionsForFactoryReset(slotId,
                                     new IRetainSubscriptionsForFactoryResetCallback.Stub() {
@@ -929,6 +963,7 @@ public class EuiccConnector extends StateMachine implements ServiceConnection {
             case CMD_GET_EUICC_PROFILE_INFO_LIST:
             case CMD_GET_EUICC_INFO:
             case CMD_ERASE_SUBSCRIPTIONS:
+            case CMD_ERASE_SUBSCRIPTIONS_WITH_OPTIONS:
             case CMD_RETAIN_SUBSCRIPTIONS:
             case CMD_GET_OTA_STATUS:
             case CMD_START_OTA_IF_NECESSARY:
@@ -1135,5 +1170,18 @@ public class EuiccConnector extends StateMachine implements ServiceConnection {
         pw.println("mSelectedComponent=" + mSelectedComponent);
         pw.println("mEuiccService=" + mEuiccService);
         pw.println("mActiveCommandCount=" + mActiveCommandCallbacks.size());
+    }
+
+    private void updateSubscriptionInfoListForAllAccessibleEuiccs() {
+        if (mTm.getCardIdForDefaultEuicc() == TelephonyManager.UNSUPPORTED_CARD_ID) {
+            // Device does not support card ID
+            mSm.requestEmbeddedSubscriptionInfoListRefresh();
+        } else {
+            for (UiccCardInfo cardInfo : mTm.getUiccCardsInfo()) {
+                if (cardInfo.isEuicc()) {
+                    mSm.requestEmbeddedSubscriptionInfoListRefresh(cardInfo.getCardId());
+                }
+            }
+        }
     }
 }
