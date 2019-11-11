@@ -118,9 +118,9 @@ public class SubscriptionInfoUpdaterTest extends TelephonyTest {
     public void setUp() throws Exception {
         super.setUp(this.getClass().getSimpleName());
 
-        replaceInstance(SubscriptionInfoUpdater.class, "mIccId", null, new String[1]);
-        replaceInstance(SubscriptionInfoUpdater.class, "mContext", null, null);
-        replaceInstance(SubscriptionInfoUpdater.class, "PROJECT_SIM_NUM", null, 1);
+        replaceInstance(SubscriptionInfoUpdater.class, "sIccId", null, new String[1]);
+        replaceInstance(SubscriptionInfoUpdater.class, "sContext", null, null);
+        replaceInstance(SubscriptionInfoUpdater.class, "SUPPORTED_MODEM_COUNT", null, 1);
         replaceInstance(SubscriptionInfoUpdater.class, "sSimCardState", null, new int[1]);
         replaceInstance(SubscriptionInfoUpdater.class, "sSimApplicationState", null, new int[1]);
         replaceInstance(SubscriptionInfoUpdater.class, "sIsSubInfoInitialized", null, false);
@@ -132,6 +132,7 @@ public class SubscriptionInfoUpdaterTest extends TelephonyTest {
         doReturn(mUiccSlot).when(mUiccController).getUiccSlotForPhone(anyInt());
         doReturn(1).when(mTelephonyManager).getSimCount();
         doReturn(1).when(mTelephonyManager).getPhoneCount();
+        doReturn(1).when(mTelephonyManager).getActiveModemCount();
 
         when(mContentProvider.update(any(), any(), any(), isNull())).thenAnswer(
                 new Answer<Integer>() {
@@ -155,7 +156,7 @@ public class SubscriptionInfoUpdaterTest extends TelephonyTest {
                 .getActiveSubIdList(/*visibleOnly*/false);
         mIccRecord = mUiccProfile.getIccRecords();
 
-        mUpdater = new SubscriptionInfoUpdater(Looper.myLooper(), mContext, new Phone[]{mPhone},
+        mUpdater = new SubscriptionInfoUpdater(Looper.myLooper(), mContext,
             new CommandsInterface[]{mSimulatedCommands}, mPackageManager);
         processAllMessages();
 
@@ -386,11 +387,10 @@ public class SubscriptionInfoUpdaterTest extends TelephonyTest {
     @SmallTest
     public void testDualSimLoaded() throws Exception {
         // Mock there is two sim cards
-        replaceInstance(SubscriptionInfoUpdater.class, "mIccId", null,
+        replaceInstance(PhoneFactory.class, "sPhones", null, new Phone[]{mPhone, mPhone});
+        replaceInstance(SubscriptionInfoUpdater.class, "sIccId", null,
                 new String[]{null, null});
-        replaceInstance(SubscriptionInfoUpdater.class, "PROJECT_SIM_NUM", null, 2);
-        replaceInstance(SubscriptionInfoUpdater.class, "mPhone", null,
-                new Phone[]{mPhone, mPhone});
+        replaceInstance(SubscriptionInfoUpdater.class, "SUPPORTED_MODEM_COUNT", null, 2);
         replaceInstance(SubscriptionInfoUpdater.class, "sSimCardState", null,
                 new int[]{0, 0});
         replaceInstance(SubscriptionInfoUpdater.class, "sSimApplicationState", null,
@@ -401,6 +401,7 @@ public class SubscriptionInfoUpdaterTest extends TelephonyTest {
         doReturn(FAKE_SUB_ID_1).when(mSubscriptionController).getPhoneId(eq(FAKE_SUB_ID_1));
         doReturn(FAKE_SUB_ID_2).when(mSubscriptionController).getPhoneId(eq(FAKE_SUB_ID_2));
         doReturn(2).when(mTelephonyManager).getPhoneCount();
+        doReturn(2).when(mTelephonyManager).getActiveModemCount();
         doReturn(FAKE_MCC_MNC_1).when(mTelephonyManager).getSimOperatorNumeric(eq(FAKE_SUB_ID_1));
         doReturn(FAKE_MCC_MNC_2).when(mTelephonyManager).getSimOperatorNumeric(eq(FAKE_SUB_ID_2));
         verify(mSubscriptionController, times(0)).clearSubInfo();
@@ -447,7 +448,7 @@ public class SubscriptionInfoUpdaterTest extends TelephonyTest {
     public void testSimLockWithIccId() throws Exception {
         /* no need for IccId query */
 
-        replaceInstance(SubscriptionInfoUpdater.class, "mIccId", null,
+        replaceInstance(SubscriptionInfoUpdater.class, "sIccId", null,
                 new String[]{"89012604200000000000"});
 
         mUpdater.updateInternalIccState(

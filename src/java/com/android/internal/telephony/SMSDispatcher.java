@@ -17,7 +17,6 @@
 package com.android.internal.telephony;
 
 import static android.Manifest.permission.SEND_SMS_NO_CONFIRMATION;
-import static android.telephony.SmsManager.RESULT_ERROR_FDN_CHECK_FAILURE;
 import static android.telephony.SmsManager.RESULT_ERROR_GENERIC_FAILURE;
 import static android.telephony.SmsManager.RESULT_ERROR_LIMIT_EXCEEDED;
 import static android.telephony.SmsManager.RESULT_ERROR_NONE;
@@ -56,16 +55,14 @@ import android.os.Handler;
 import android.os.Message;
 import android.os.PersistableBundle;
 import android.os.Process;
-import android.os.RemoteException;
 import android.os.UserHandle;
 import android.provider.Settings;
 import android.provider.Telephony;
 import android.provider.Telephony.Sms;
 import android.service.carrier.CarrierMessagingService;
-import android.service.carrier.ICarrierMessagingCallback;
-import android.service.carrier.ICarrierMessagingService;
+import android.service.carrier.CarrierMessagingServiceWrapper;
+import android.service.carrier.CarrierMessagingServiceWrapper.CarrierMessagingCallbackWrapper;
 import android.telephony.CarrierConfigManager;
-import android.telephony.CarrierMessagingServiceManager;
 import android.telephony.PhoneNumberUtils;
 import android.telephony.Rlog;
 import android.telephony.ServiceState;
@@ -342,8 +339,8 @@ public abstract class SMSDispatcher extends Handler {
                 Rlog.d(TAG, "SMSDispatcher: EVENT_STOP_SENDING - "
                         + "sending LIMIT_EXCEEDED error code.");
             } else {
-                error = RESULT_ERROR_GENERIC_FAILURE;
-                Rlog.e(TAG, "SMSDispatcher: EVENT_STOP_SENDING - unexpected cases.");
+                    error = SmsManager.RESULT_UNEXPECTED_EVENT_STOP_SENDING;
+                    Rlog.e(TAG, "SMSDispatcher: EVENT_STOP_SENDING - unexpected cases.");
             }
 
             handleSmsTrackersFailure(trackers, error, NO_ERROR_CODE);
@@ -363,7 +360,7 @@ public abstract class SMSDispatcher extends Handler {
     /**
      * Use the carrier messaging service to send a data or text SMS.
      */
-    protected abstract class SmsSender extends CarrierMessagingServiceManager {
+    protected abstract class SmsSender extends CarrierMessagingServiceWrapper {
         protected final SmsTracker mTracker;
         // Initialized in sendSmsByCarrierApp
         protected volatile SmsSenderCallback mSenderCallback;
@@ -402,16 +399,16 @@ public abstract class SMSDispatcher extends Handler {
         }
 
         @Override
-        protected void onServiceReady(ICarrierMessagingService carrierMessagingService) {
+        public void onServiceReady() {
             HashMap<String, Object> map = mTracker.getData();
             String text = (String) map.get(MAP_KEY_TEXT);
 
             if (text != null) {
                 try {
-                    carrierMessagingService.sendTextSms(text, getSubId(),
+                    sendTextSms(text, getSubId(),
                             mTracker.mDestAddress, getSendSmsFlag(mTracker.mDeliveryIntent),
                             mSenderCallback);
-                } catch (RemoteException e) {
+                } catch (RuntimeException e) {
                     Rlog.e(TAG, "Exception sending the SMS: " + e);
                     mSenderCallback.onSendSmsComplete(
                             CarrierMessagingService.SEND_STATUS_RETRY_ON_CARRIER_NETWORK,
@@ -434,17 +431,17 @@ public abstract class SMSDispatcher extends Handler {
         }
 
         @Override
-        protected void onServiceReady(ICarrierMessagingService carrierMessagingService) {
+        public void onServiceReady() {
             HashMap<String, Object> map = mTracker.getData();
             byte[] data = (byte[]) map.get(MAP_KEY_DATA);
             int destPort = (int) map.get(MAP_KEY_DEST_PORT);
 
             if (data != null) {
                 try {
-                    carrierMessagingService.sendDataSms(data, getSubId(),
+                    sendDataSms(data, getSubId(),
                             mTracker.mDestAddress, destPort,
                             getSendSmsFlag(mTracker.mDeliveryIntent), mSenderCallback);
-                } catch (RemoteException e) {
+                } catch (RuntimeException e) {
                     Rlog.e(TAG, "Exception sending the SMS: " + e);
                     mSenderCallback.onSendSmsComplete(
                             CarrierMessagingService.SEND_STATUS_RETRY_ON_CARRIER_NETWORK,
@@ -462,7 +459,8 @@ public abstract class SMSDispatcher extends Handler {
      * Callback for TextSmsSender and DataSmsSender from the carrier messaging service.
      * Once the result is ready, the carrier messaging service connection is disposed.
      */
-    protected final class SmsSenderCallback extends ICarrierMessagingCallback.Stub {
+    protected final class SmsSenderCallback extends
+            CarrierMessagingServiceWrapper.CarrierMessagingCallbackWrapper {
         private final SmsSender mSmsSender;
 
         public SmsSenderCallback(SmsSender smsSender) {
@@ -541,7 +539,7 @@ public abstract class SMSDispatcher extends Handler {
     /**
      * Use the carrier messaging service to send a multipart text SMS.
      */
-    private final class MultipartSmsSender extends CarrierMessagingServiceManager {
+    private final class MultipartSmsSender extends CarrierMessagingServiceWrapper {
         private final List<String> mParts;
         public final SmsTracker[] mTrackers;
         // Initialized in sendSmsByCarrierApp
@@ -567,12 +565,12 @@ public abstract class SMSDispatcher extends Handler {
         }
 
         @Override
-        protected void onServiceReady(ICarrierMessagingService carrierMessagingService) {
+        public void onServiceReady() {
             try {
-                carrierMessagingService.sendMultipartTextSms(
+                sendMultipartTextSms(
                         mParts, getSubId(), mTrackers[0].mDestAddress,
                         getSendSmsFlag(mTrackers[0].mDeliveryIntent), mSenderCallback);
-            } catch (RemoteException e) {
+            } catch (RuntimeException e) {
                 Rlog.e(TAG, "Exception sending the SMS: " + e);
                 mSenderCallback.onSendMultipartSmsComplete(
                         CarrierMessagingService.SEND_STATUS_RETRY_ON_CARRIER_NETWORK,
@@ -585,7 +583,7 @@ public abstract class SMSDispatcher extends Handler {
      * Callback for MultipartSmsSender from the carrier messaging service.
      * Once the result is ready, the carrier messaging service connection is disposed.
      */
-    private final class MultipartSmsSenderCallback extends ICarrierMessagingCallback.Stub {
+    private final class MultipartSmsSenderCallback extends CarrierMessagingCallbackWrapper {
         private final MultipartSmsSender mSmsSender;
 
         MultipartSmsSenderCallback(MultipartSmsSender smsSender) {
@@ -650,7 +648,8 @@ public abstract class SMSDispatcher extends Handler {
     private void sendSubmitPdu(SmsTracker[] trackers) {
         if (shouldBlockSmsForEcbm()) {
             Rlog.d(TAG, "Block SMS in Emergency Callback mode");
-            handleSmsTrackersFailure(trackers, RESULT_ERROR_NO_SERVICE, NO_ERROR_CODE);
+            handleSmsTrackersFailure(trackers, SmsManager.RESULT_SMS_BLOCKED_DURING_EMERGENCY,
+                    NO_ERROR_CODE);
         } else {
             sendRawPdu(trackers);
         }
@@ -730,13 +729,59 @@ public abstract class SMSDispatcher extends Handler {
                 if (ar.result != null) {
                     errorCode = ((SmsResponse)ar.result).mErrorCode;
                 }
-                int error = RESULT_ERROR_GENERIC_FAILURE;
-                if (((CommandException)(ar.exception)).getCommandError()
-                        == CommandException.Error.FDN_CHECK_FAILURE) {
-                    error = RESULT_ERROR_FDN_CHECK_FAILURE;
-                }
+                int error = rilErrorToSmsManagerResult(((CommandException) (ar.exception))
+                        .getCommandError());
                 tracker.onFailed(mContext, error, errorCode);
             }
+        }
+    }
+
+    private static int rilErrorToSmsManagerResult(CommandException.Error rilError) {
+        switch (rilError) {
+            case RADIO_NOT_AVAILABLE:
+                return SmsManager.RESULT_RIL_RADIO_NOT_AVAILABLE;
+            case SMS_FAIL_RETRY:
+                return SmsManager.RESULT_RIL_SMS_SEND_FAIL_RETRY;
+            case NETWORK_REJECT:
+                return SmsManager.RESULT_RIL_NETWORK_REJECT;
+            case INVALID_STATE:
+                return SmsManager.RESULT_RIL_INVALID_STATE;
+            case INVALID_ARGUMENTS:
+                return SmsManager.RESULT_RIL_INVALID_ARGUMENTS;
+            case NO_MEMORY:
+                return SmsManager.RESULT_RIL_NO_MEMORY;
+            case REQUEST_RATE_LIMITED:
+                return SmsManager.RESULT_RIL_REQUEST_RATE_LIMITED;
+            case INVALID_SMS_FORMAT:
+                return SmsManager.RESULT_RIL_INVALID_SMS_FORMAT;
+            case SYSTEM_ERR:
+                return SmsManager.RESULT_RIL_SYSTEM_ERR;
+            case ENCODING_ERR:
+                return SmsManager.RESULT_RIL_ENCODING_ERR;
+            case MODEM_ERR:
+                return SmsManager.RESULT_RIL_MODEM_ERR;
+            case NETWORK_ERR:
+                return SmsManager.RESULT_RIL_NETWORK_ERR;
+            case INTERNAL_ERR:
+                return SmsManager.RESULT_RIL_INTERNAL_ERR;
+            case REQUEST_NOT_SUPPORTED:
+                return SmsManager.RESULT_RIL_REQUEST_NOT_SUPPORTED;
+            case INVALID_MODEM_STATE:
+                return SmsManager.RESULT_RIL_INVALID_MODEM_STATE;
+            case NETWORK_NOT_READY:
+                return SmsManager.RESULT_RIL_NETWORK_NOT_READY;
+            case OPERATION_NOT_ALLOWED:
+                return SmsManager.RESULT_RIL_OPERATION_NOT_ALLOWED;
+            case NO_RESOURCES:
+                return SmsManager.RESULT_RIL_NO_RESOURCES;
+            case REQUEST_CANCELLED:
+                return SmsManager.RESULT_RIL_CANCELLED;
+            case SIM_ABSENT:
+                return SmsManager.RESULT_RIL_SIM_ABSENT;
+            case FDN_CHECK_FAILURE:
+                return SmsManager.RESULT_ERROR_FDN_CHECK_FAILURE;
+            default:
+                return RESULT_ERROR_GENERIC_FAILURE;
         }
     }
 
@@ -1241,7 +1286,7 @@ public abstract class SMSDispatcher extends Handler {
                 if (simCountryIso == null || simCountryIso.length() != 2) {
                     Rlog.e(TAG, "Can't get SIM country Iso: trying network country Iso");
                     simCountryIso =
-                            mTelephonyManager.getNetworkCountryIsoForPhone(mPhone.getPhoneId());
+                            mTelephonyManager.getNetworkCountryIso(mPhone.getPhoneId());
                 }
 
                 smsCategory =
@@ -1251,7 +1296,7 @@ public abstract class SMSDispatcher extends Handler {
             }
             if (rule == PREMIUM_RULE_USE_NETWORK || rule == PREMIUM_RULE_USE_BOTH) {
                 String networkCountryIso =
-                        mTelephonyManager.getNetworkCountryIsoForPhone(mPhone.getPhoneId());
+                        mTelephonyManager.getNetworkCountryIso(mPhone.getPhoneId());
                 if (networkCountryIso == null || networkCountryIso.length() != 2) {
                     Rlog.e(TAG, "Can't get Network country Iso: trying SIM country Iso");
                     networkCountryIso =
