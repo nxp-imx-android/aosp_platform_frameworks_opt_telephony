@@ -20,14 +20,13 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.Matchers.any;
+import static org.mockito.Matchers.anyBoolean;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
-import android.content.Context;
 import android.content.Intent;
-import android.net.wifi.WifiManager;
 import android.os.AsyncResult;
 import android.os.Looper;
 import android.os.Message;
@@ -56,6 +55,7 @@ public class LocaleTrackerTest extends TelephonyTest {
 
     private static final String US_MCC = "310";
     private static final String LIECHTENSTEIN_MCC = "295";
+    private static final String BOGUS_MCC = "001";
 
     private static final String FAKE_MNC = "123";
 
@@ -66,7 +66,6 @@ public class LocaleTrackerTest extends TelephonyTest {
     private LocaleTracker mLocaleTracker;
 
     private CellInfoGsm mCellInfo;
-    private WifiManager mWifiManager;
 
     @Before
     public void setUp() throws Exception {
@@ -77,7 +76,6 @@ public class LocaleTrackerTest extends TelephonyTest {
 
         // This is a workaround to bypass setting system properties, which causes access violation.
         doReturn(-1).when(mPhone).getPhoneId();
-        mWifiManager = (WifiManager) mContext.getSystemService(Context.WIFI_SERVICE);
 
         mCellInfo = new CellInfoGsm();
         mCellInfo.setCellIdentity(new CellIdentityGsm(
@@ -117,18 +115,17 @@ public class LocaleTrackerTest extends TelephonyTest {
         processAllMessages();
     }
 
-    private void verifyCountryCodeNotified(String[] countryCodes) {
-        ArgumentCaptor<String> stringArgumentCaptor = ArgumentCaptor.forClass(String.class);
-        verify(mWifiManager, times(countryCodes.length)).setCountryCode(
-                stringArgumentCaptor.capture());
-        List<String> strs = stringArgumentCaptor.getAllValues();
+    private void sendOperatorLost() {
+        mLocaleTracker.sendMessage(mLocaleTracker.obtainMessage(6 /* EVENT_OPERATOR_LOST */));
+        processAllMessages();
+    }
 
+    private void verifyCountryCodeNotified(String[] countryCodes) {
         ArgumentCaptor<Intent> intentArgumentCaptor = ArgumentCaptor.forClass(Intent.class);
         verify(mContext, times(countryCodes.length)).sendBroadcast(intentArgumentCaptor.capture());
         List<Intent> intents = intentArgumentCaptor.getAllValues();
 
         for (int i = 0; i < countryCodes.length; i++) {
-            assertEquals(countryCodes[i], strs.get(i));
             assertEquals(TelephonyManager.ACTION_NETWORK_COUNTRY_CHANGED,
                     intents.get(i).getAction());
             assertEquals(countryCodes[i], intents.get(i).getStringExtra(
@@ -279,5 +276,22 @@ public class LocaleTrackerTest extends TelephonyTest {
         for (int i = 10; i <= 2000; i++) {
             assertEquals(600000, LocaleTracker.getCellInfoDelayTime(i));
         }
+    }
+
+    @Test
+    @SmallTest
+    public void updateOperatorNumeric_NoSim_shouldHandleNetworkCountryCodeUnavailable()
+            throws Exception {
+        mLocaleTracker.updateOperatorNumeric("");
+        sendOperatorLost();
+        verify(mNitzStateMachine, times(1)).handleNetworkCountryCodeUnavailable();
+    }
+
+    @Test
+    @SmallTest
+    public void updateOperatorNumeric_BogusNetwork_shouldHandleNetworkCountryCodeSet()
+            throws Exception {
+        mLocaleTracker.updateOperatorNumeric(BOGUS_MCC + FAKE_MNC);
+        verify(mNitzStateMachine, times(1)).handleNetworkCountryCodeSet(anyBoolean());
     }
 }
