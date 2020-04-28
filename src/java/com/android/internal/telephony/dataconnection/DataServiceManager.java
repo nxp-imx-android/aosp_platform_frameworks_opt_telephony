@@ -44,7 +44,6 @@ import android.telephony.AccessNetworkConstants.TransportType;
 import android.telephony.AnomalyReporter;
 import android.telephony.CarrierConfigManager;
 import android.telephony.Rlog;
-import android.telephony.SubscriptionManager;
 import android.telephony.data.DataCallResponse;
 import android.telephony.data.DataProfile;
 import android.telephony.data.DataService;
@@ -54,7 +53,6 @@ import android.telephony.data.IDataServiceCallback;
 import android.text.TextUtils;
 
 import com.android.internal.telephony.Phone;
-import com.android.internal.telephony.PhoneConfigurationManager;
 
 import java.util.HashSet;
 import java.util.List;
@@ -134,8 +132,8 @@ public class DataServiceManager extends Handler {
         try {
             mPackageManager.grantDefaultPermissionsToEnabledTelephonyDataServices(
                     pkgToGrant, mPhone.getContext().getUserId());
-            mAppOps.setMode(AppOpsManager.OPSTR_MANAGE_IPSEC_TUNNELS,
-                mPhone.getContext().getUserId(), pkgToGrant[0], AppOpsManager.MODE_ALLOWED);
+            mAppOps.setMode(AppOpsManager.OP_MANAGE_IPSEC_TUNNELS, mPhone.getContext().getUserId(),
+                    pkgToGrant[0], AppOpsManager.MODE_ALLOWED);
         } catch (RemoteException e) {
             loge("Binder to package manager died, permission grant for DataService failed.");
             throw e.rethrowAsRuntimeException();
@@ -159,7 +157,7 @@ public class DataServiceManager extends Handler {
             mPackageManager.revokeDefaultPermissionsFromDisabledTelephonyDataServices(
                     dataServicesArray, mPhone.getContext().getUserId());
             for (String pkg : dataServices) {
-                mAppOps.setMode(AppOpsManager.OPSTR_MANAGE_IPSEC_TUNNELS,
+                mAppOps.setMode(AppOpsManager.OP_MANAGE_IPSEC_TUNNELS,
                         mPhone.getContext().getUserId(),
                         pkg, AppOpsManager.MODE_ERRORED);
             }
@@ -287,10 +285,8 @@ public class DataServiceManager extends Handler {
 
         IntentFilter intentFilter = new IntentFilter();
         intentFilter.addAction(CarrierConfigManager.ACTION_CARRIER_CONFIG_CHANGED);
-
-        PhoneConfigurationManager.registerForMultiSimConfigChange(
-                this, EVENT_BIND_DATA_SERVICE, null);
-
+        phone.getContext().registerReceiverAsUser(mBroadcastReceiver, UserHandle.ALL,
+                intentFilter, null, null);
         sendEmptyMessage(EVENT_BIND_DATA_SERVICE);
     }
 
@@ -303,7 +299,7 @@ public class DataServiceManager extends Handler {
     public void handleMessage(Message msg) {
         switch (msg.what) {
             case EVENT_BIND_DATA_SERVICE:
-                rebindDataService();
+                bindDataService();
                 break;
             case EVENT_WATCHDOG_TIMEOUT:
                 handleRequestUnresponded((CellularDataServiceCallback) msg.obj);
@@ -324,47 +320,30 @@ public class DataServiceManager extends Handler {
                 message);
     }
 
-    private void unbindDataService() {
+    private void bindDataService() {
+        String packageName = getDataServicePackageName();
+        if (TextUtils.isEmpty(packageName)) {
+            loge("Can't find the binding package");
+            return;
+        }
+
+        if (TextUtils.equals(packageName, mTargetBindingPackageName)) {
+            if (DBG) log("Service " + packageName + " already bound or being bound.");
+            return;
+        }
+
         // Start by cleaning up all packages that *shouldn't* have permissions.
         revokePermissionsFromUnusedDataServices();
+
         if (mIDataService != null && mIDataService.asBinder().isBinderAlive()) {
-            log("unbinding service");
             // Remove the network availability updater and then unbind the service.
             try {
                 mIDataService.removeDataServiceProvider(mPhone.getPhoneId());
             } catch (RemoteException e) {
                 loge("Cannot remove data service provider. " + e);
             }
-        }
 
-        if (mServiceConnection != null) {
             mPhone.getContext().unbindService(mServiceConnection);
-        }
-        mIDataService = null;
-        mServiceConnection = null;
-        mTargetBindingPackageName = null;
-        mBound = false;
-    }
-
-    private void bindDataService(String packageName) {
-        if (mPhone == null || !SubscriptionManager.isValidPhoneId(mPhone.getPhoneId())) {
-            loge("can't bindDataService with invalid phone or phoneId.");
-            return;
-        }
-
-        if (TextUtils.isEmpty(packageName)) {
-            loge("Can't find the binding package");
-            return;
-        }
-
-        Intent intent = null;
-        String className = getDataServiceClassName();
-        if (TextUtils.isEmpty(className)) {
-            intent = new Intent(DataService.SERVICE_INTERFACE);
-            intent.setPackage(packageName);
-        } else {
-            ComponentName cm = new ComponentName(packageName, className);
-            intent = new Intent(DataService.SERVICE_INTERFACE).setComponent(cm);
         }
 
         // Then pre-emptively grant the permissions to the package we will bind.
@@ -373,7 +352,9 @@ public class DataServiceManager extends Handler {
         try {
             mServiceConnection = new CellularDataServiceConnection();
             if (!mPhone.getContext().bindService(
-                    intent, mServiceConnection, Context.BIND_AUTO_CREATE)) {
+                    new Intent(DataService.SERVICE_INTERFACE).setPackage(packageName),
+                    mServiceConnection,
+                    Context.BIND_AUTO_CREATE)) {
                 loge("Cannot bind to the data service.");
                 return;
             }
@@ -381,19 +362,6 @@ public class DataServiceManager extends Handler {
         } catch (Exception e) {
             loge("Cannot bind to the data service. Exception: " + e);
         }
-    }
-
-    private void rebindDataService() {
-        String packageName = getDataServicePackageName();
-        // Do nothing if no need to rebind.
-        if (SubscriptionManager.isValidPhoneId(mPhone.getPhoneId())
-                && TextUtils.equals(packageName, mTargetBindingPackageName)) {
-            if (DBG) log("Service " + packageName + " already bound or being bound.");
-            return;
-        }
-
-        unbindDataService();
-        bindDataService(packageName);
     }
 
     @NonNull
@@ -465,55 +433,6 @@ public class DataServiceManager extends Handler {
         }
 
         return packageName;
-    }
-
-    /**
-     * Get the data service class name for our current transport type.
-     *
-     * @return class name of the data service package for the the current transportType.
-     */
-    private String getDataServiceClassName() {
-        return getDataServiceClassName(mTransportType);
-    }
-
-
-    /**
-     * Get the data service class by transport type.
-     *
-     * @param transportType either WWAN or WLAN
-     * @return class name of the data service package for the specified transportType.
-     */
-    private String getDataServiceClassName(int transportType) {
-        String className;
-        int resourceId;
-        String carrierConfig;
-        switch (transportType) {
-            case AccessNetworkConstants.TRANSPORT_TYPE_WWAN:
-                resourceId = com.android.internal.R.string.config_wwan_data_service_class;
-                carrierConfig = CarrierConfigManager
-                        .KEY_CARRIER_DATA_SERVICE_WWAN_CLASS_OVERRIDE_STRING;
-                break;
-            case AccessNetworkConstants.TRANSPORT_TYPE_WLAN:
-                resourceId = com.android.internal.R.string.config_wlan_data_service_class;
-                carrierConfig = CarrierConfigManager
-                        .KEY_CARRIER_DATA_SERVICE_WLAN_CLASS_OVERRIDE_STRING;
-                break;
-            default:
-                throw new IllegalStateException("Transport type not WWAN or WLAN. type="
-                        + transportType);
-        }
-
-        // Read package name from resource overlay
-        className = mPhone.getContext().getResources().getString(resourceId);
-
-        PersistableBundle b = mCarrierConfigManager.getConfigForSubId(mPhone.getSubId());
-
-        if (b != null && !TextUtils.isEmpty(b.getString(carrierConfig))) {
-            // If carrier config overrides it, use the one from carrier config
-            className = b.getString(carrierConfig, className);
-        }
-
-        return className;
     }
 
     private void sendCompleteMessage(Message msg, int code) {

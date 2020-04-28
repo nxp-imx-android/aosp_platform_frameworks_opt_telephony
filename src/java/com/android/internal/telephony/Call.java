@@ -16,12 +16,13 @@
 
 package com.android.internal.telephony;
 
-import android.annotation.UnsupportedAppUsage;
 import android.telecom.ConferenceParticipant;
-import android.telephony.Rlog;
 
 import java.util.ArrayList;
 import java.util.List;
+
+import android.annotation.UnsupportedAppUsage;
+import android.telephony.Rlog;
 
 /**
  * {@hide}
@@ -29,30 +30,11 @@ import java.util.List;
 public abstract class Call {
     protected final String LOG_TAG = "Call";
 
-    @UnsupportedAppUsage
-    public Call() {
-    }
-
     /* Enums */
-    @UnsupportedAppUsage(implicitMember = "values()[Lcom/android/internal/telephony/Call$State;")
+
     public enum State {
         @UnsupportedAppUsage
-        IDLE,
-        ACTIVE,
-        @UnsupportedAppUsage
-        HOLDING,
-        @UnsupportedAppUsage
-        DIALING,
-        @UnsupportedAppUsage
-        ALERTING,
-        @UnsupportedAppUsage
-        INCOMING,
-        @UnsupportedAppUsage
-        WAITING,
-        @UnsupportedAppUsage
-        DISCONNECTED,
-        @UnsupportedAppUsage
-        DISCONNECTING;
+        IDLE, ACTIVE, HOLDING, DIALING, ALERTING, INCOMING, WAITING, DISCONNECTED, DISCONNECTING;
 
         @UnsupportedAppUsage
         public boolean isAlive() {

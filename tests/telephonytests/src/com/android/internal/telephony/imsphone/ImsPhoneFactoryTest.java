@@ -15,16 +15,8 @@
  */
 package com.android.internal.telephony.imsphone;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
-import static org.mockito.Mockito.doReturn;
-import static org.mockito.Mockito.eq;
-import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.verify;
-
 import android.os.HandlerThread;
 import android.test.suitebuilder.annotation.SmallTest;
-
 import com.android.internal.telephony.PhoneNotifier;
 import com.android.internal.telephony.TelephonyTest;
 
@@ -32,8 +24,11 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.mockito.Mock;
-
-import java.util.concurrent.Executor;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertEquals;
+import static org.mockito.Mockito.eq;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 
 public class ImsPhoneFactoryTest extends TelephonyTest {
 
@@ -41,13 +36,6 @@ public class ImsPhoneFactoryTest extends TelephonyTest {
     private PhoneNotifier mPhoneNotifer;
     private ImsPhone mImsPhoneUT;
     private ImsPhoneFactoryHandler mImsPhoneFactoryHandler;
-
-    private Executor mExecutor = new Executor() {
-        @Override
-        public void execute(Runnable r) {
-            r.run();
-        }
-    };
 
     private class ImsPhoneFactoryHandler extends HandlerThread {
 
@@ -64,8 +52,6 @@ public class ImsPhoneFactoryTest extends TelephonyTest {
     @Before
     public void setUp() throws Exception {
         super.setUp(this.getClass().getSimpleName());
-        doReturn(mExecutor).when(mContext).getMainExecutor();
-
         mImsPhoneFactoryHandler = new ImsPhoneFactoryHandler(this.getClass().getSimpleName());
         mImsPhoneFactoryHandler.start();
 

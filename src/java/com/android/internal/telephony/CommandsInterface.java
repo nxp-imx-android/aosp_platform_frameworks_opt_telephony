@@ -1210,20 +1210,8 @@ public interface CommandsInterface {
     @UnsupportedAppUsage
     void writeSmsToSim(int status, String smsc, String pdu, Message response);
 
-    /**
-     * Writes an SMS message to RUIM memory (EF_SMS).
-     *
-     * @param status status of message on SIM. One of:
-     *                  SmsManger.STATUS_ON_ICC_READ
-     *                  SmsManger.STATUS_ON_ICC_UNREAD
-     *                  SmsManger.STATUS_ON_ICC_SENT
-     *                  SmsManger.STATUS_ON_ICC_UNSENT
-     * @param pdu message PDU, as byte array
-     * @param response sent when operation completes. response.obj will be an AsyncResult, and will
-     *     indicate any error that may have occurred (eg, out of memory).
-     */
     @UnsupportedAppUsage
-    void writeSmsToRuim(int status, byte[] pdu, Message response);
+    void writeSmsToRuim(int status, String pdu, Message response);
 
     @UnsupportedAppUsage
     void setRadioPower(boolean on, Message response);
@@ -2362,14 +2350,6 @@ public interface CommandsInterface {
      * @param result a Message to return to the requester
      */
     default void enableModem(boolean enable, Message result) {};
-
-    /**
-     * Notify CommandsInterface that whether its corresponding slot is active or not. If not,
-     * it means it has no RIL service or logical modem to connect to.
-     *
-     * @param active whether there's a matching active SIM slot.
-     */
-    default void onSlotActiveStatusChange(boolean active) {}
 
     /**
      * Query whether logical modem is enabled or disabled

@@ -16,9 +16,12 @@
 
 package com.android.internal.telephony.cat;
 
-import static com.android.internal.telephony.cat.CatCmdMessage.SetupEventListConstants.IDLE_SCREEN_AVAILABLE_EVENT;
-import static com.android.internal.telephony.cat.CatCmdMessage.SetupEventListConstants.LANGUAGE_SELECTION_EVENT;
-import static com.android.internal.telephony.cat.CatCmdMessage.SetupEventListConstants.USER_ACTIVITY_EVENT;
+import static com.android.internal.telephony.cat.CatCmdMessage.SetupEventListConstants
+        .IDLE_SCREEN_AVAILABLE_EVENT;
+import static com.android.internal.telephony.cat.CatCmdMessage.SetupEventListConstants
+        .LANGUAGE_SELECTION_EVENT;
+import static com.android.internal.telephony.cat.CatCmdMessage.SetupEventListConstants
+        .USER_ACTIVITY_EVENT;
 
 import android.annotation.UnsupportedAppUsage;
 import android.app.ActivityManagerNative;
@@ -35,6 +38,7 @@ import android.os.Handler;
 import android.os.LocaleList;
 import android.os.Message;
 import android.os.RemoteException;
+import android.telephony.SubscriptionManager;
 import android.telephony.TelephonyManager;
 
 import com.android.internal.telephony.CommandsInterface;
@@ -217,7 +221,7 @@ public class CatService extends Handler implements AppInterface {
 
         synchronized (sInstanceLock) {
             if (sInstance == null) {
-                int simCount = TelephonyManager.getDefault().getSupportedModemCount();
+                int simCount = TelephonyManager.getDefault().getSimCount();
                 sInstance = new CatService[simCount];
                 for (int i = 0; i < simCount; i++) {
                     sInstance[i] = null;
@@ -248,7 +252,6 @@ public class CatService extends Handler implements AppInterface {
     }
 
     @UnsupportedAppUsage
-    @Override
     public void dispose() {
         synchronized (sInstanceLock) {
             CatLog.d(this, "Disposing CatService object");
@@ -272,7 +275,7 @@ public class CatService extends Handler implements AppInterface {
             mMsgDecoder = null;
             removeCallbacksAndMessages(null);
             if (sInstance != null) {
-                if (mSlotId >= 0 && mSlotId < sInstance.length) {
+                if (SubscriptionManager.isValidSlotIndex(mSlotId)) {
                     sInstance[mSlotId] = null;
                 } else {
                     CatLog.d(this, "error: invaild slot id: " + mSlotId);
@@ -808,7 +811,7 @@ public class CatService extends Handler implements AppInterface {
      */
     //TODO Need to take care for MSIM
     public static AppInterface getInstance() {
-        int slotId = PhoneConstants.DEFAULT_SLOT_INDEX;
+        int slotId = PhoneConstants.DEFAULT_CARD_INDEX;
         SubscriptionController sControl = SubscriptionController.getInstance();
         if (sControl != null) {
             slotId = sControl.getSlotIndex(sControl.getDefaultSubId());
@@ -1175,14 +1178,7 @@ public class CatService extends Handler implements AppInterface {
     private void changeLanguage(String language) throws RemoteException {
         IActivityManager am = ActivityManagerNative.getDefault();
         Configuration config = am.getConfiguration();
-        // get locale list, combined with language locale and default locale list.
-        LocaleList defaultLocaleList = LocaleList.getDefault();
-        Locale[] locales = new Locale[defaultLocaleList.size() + 1];
-        locales[0] = new Locale(language);
-        for (int i = 0; i < defaultLocaleList.size(); i++) {
-            locales[i+1] = defaultLocaleList.get(i);
-        }
-        config.setLocales(new LocaleList(locales));
+        config.setLocales(new LocaleList(new Locale(language), LocaleList.getDefault()));
         config.userSetLocale = true;
         am.updatePersistentConfiguration(config);
         BackupManager.dataChanged("com.android.providers.settings");

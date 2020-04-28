@@ -18,9 +18,22 @@ package com.android.internal.telephony;
 
 import com.android.internal.telephony.uicc.AdnRecord;
 
-/**
- * Interface for applications to access the ICC phone book.
+
+
+/** Interface for applications to access the ICC phone book.
+ *
+ * <p>The following code snippet demonstrates a static method to
+ * retrieve the IIccPhoneBook interface from Android:</p>
+ * <pre>private static IIccPhoneBook getSimPhoneBookInterface()
+            throws DeadObjectException {
+    IServiceManager sm = ServiceManagerNative.getDefault();
+    IIccPhoneBook spb;
+    spb = IIccPhoneBook.Stub.asInterface(sm.getService("iccphonebook"));
+    return spb;
+}
+ * </pre>
  */
+
 interface IIccPhoneBook {
 
     /**
@@ -30,7 +43,6 @@ interface IIccPhoneBook {
      * @param efid the EF id of a ADN-like SIM
      * @return List of AdnRecord
      */
-    @UnsupportedAppUsage
     List<AdnRecord> getAdnRecordsInEf(int efid);
 
     /**
@@ -41,7 +53,6 @@ interface IIccPhoneBook {
      * @param subId user preferred subId
      * @return List of AdnRecord
      */
-    @UnsupportedAppUsage
     List<AdnRecord> getAdnRecordsInEfForSubscriber(int subId, int efid);
 
     /**
@@ -62,7 +73,6 @@ interface IIccPhoneBook {
      * @param pin2 required to update EF_FDN, otherwise must be null
      * @return true for success
      */
-    @UnsupportedAppUsage
     boolean updateAdnRecordsInEfBySearch(int efid,
             String oldTag, String oldPhoneNumber,
             String newTag, String newPhoneNumber,
@@ -141,7 +151,6 @@ interface IIccPhoneBook {
      *            recordSizes[1]  is the total length of the EF file
      *            recordSizes[2]  is the number of records in the EF file
      */
-    @UnsupportedAppUsage
     int[] getAdnRecordsSize(int efid);
 
     /**
@@ -154,7 +163,6 @@ interface IIccPhoneBook {
      *            recordSizes[1]  is the total length of the EF file
      *            recordSizes[2]  is the number of records in the EF file
      */
-    @UnsupportedAppUsage
     int[] getAdnRecordsSizeForSubscriber(int subId, int efid);
 
 }

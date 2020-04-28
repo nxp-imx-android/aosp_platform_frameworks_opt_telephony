@@ -20,8 +20,6 @@ import android.os.HandlerThread;
 import android.os.Looper;
 import android.telephony.Rlog;
 
-import dalvik.annotation.compat.UnsupportedAppUsage;
-
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -123,7 +121,6 @@ class LineReader
 
 class InterpreterEx extends Exception
 {
-    @UnsupportedAppUsage
     public
     InterpreterEx (String result)
     {

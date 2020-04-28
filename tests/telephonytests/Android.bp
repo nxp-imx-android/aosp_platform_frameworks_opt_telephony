@@ -20,7 +20,6 @@ android_test {
         "services.net",
         "telephony-common",
         "truth-prebuilt",
-        "testables",
     ],
 
     platform_apis: true,

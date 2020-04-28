@@ -351,7 +351,7 @@ public class GsmCdmaCallTracker extends CallTracker {
         }
 
         if (mNumberConverted) {
-            mPendingMO.restoreDialedNumberAfterConversion(origNumber);
+            mPendingMO.setConverted(origNumber);
             mNumberConverted = false;
         }
 
@@ -414,7 +414,7 @@ public class GsmCdmaCallTracker extends CallTracker {
         TelephonyManager tm =
                 (TelephonyManager) mPhone.getContext().getSystemService(Context.TELEPHONY_SERVICE);
         String origNumber = dialString;
-        String operatorIsoContry = tm.getNetworkCountryIso(mPhone.getPhoneId());
+        String operatorIsoContry = tm.getNetworkCountryIsoForPhone(mPhone.getPhoneId());
         String simIsoContry = tm.getSimCountryIsoForPhone(mPhone.getPhoneId());
         boolean internationalRoaming = !TextUtils.isEmpty(operatorIsoContry)
                 && !TextUtils.isEmpty(simIsoContry)
@@ -484,7 +484,7 @@ public class GsmCdmaCallTracker extends CallTracker {
         }
 
         if (mNumberConverted) {
-            mPendingMO.restoreDialedNumberAfterConversion(origNumber);
+            mPendingMO.setConverted(origNumber);
             mNumberConverted = false;
         }
 

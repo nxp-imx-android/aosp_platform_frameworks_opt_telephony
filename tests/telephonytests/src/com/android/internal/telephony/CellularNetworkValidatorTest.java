@@ -16,10 +16,12 @@
 
 package com.android.internal.telephony;
 
+
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Matchers.eq;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.verify;
@@ -27,19 +29,15 @@ import static org.mockito.Mockito.verify;
 import android.net.Network;
 import android.net.NetworkCapabilities;
 import android.net.NetworkRequest;
+import android.os.HandlerThread;
 import android.telephony.PhoneCapability;
 import android.telephony.SubscriptionManager;
 import android.test.suitebuilder.annotation.SmallTest;
-import android.testing.AndroidTestingRunner;
-import android.testing.TestableLooper;
 
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
-import org.junit.runner.RunWith;
 
-@RunWith(AndroidTestingRunner.class)
-@TestableLooper.RunWithLooper
 public class CellularNetworkValidatorTest extends TelephonyTest {
     private boolean mValidated = false;
     private CellularNetworkValidator mValidatorUT;
@@ -48,6 +46,7 @@ public class CellularNetworkValidatorTest extends TelephonyTest {
             new PhoneCapability(1, 1, 0, null, true);
     private static final PhoneCapability CAPABILITY_WITHOUT_VALIDATION_SUPPORTED =
             new PhoneCapability(1, 1, 0, null, false);
+    private HandlerThread mHandlerThread;
 
     CellularNetworkValidator.ValidationCallback mCallback = (validated, subId) -> {
         mValidated = validated;
@@ -60,8 +59,18 @@ public class CellularNetworkValidatorTest extends TelephonyTest {
 
         doReturn(CAPABILITY_WITH_VALIDATION_SUPPORTED).when(mPhoneConfigurationManager)
                 .getCurrentPhoneCapability();
-        mValidatorUT = new CellularNetworkValidator(mContext);
-        processAllMessages();
+        doReturn(true).when(mSubscriptionController).isActiveSubId(anyInt());
+
+        mHandlerThread = new HandlerThread("PhoneSwitcherTestThread") {
+            @Override
+            public void onLooperPrepared() {
+                mValidatorUT = new CellularNetworkValidator(mContext);
+            }
+        };
+
+        mHandlerThread.start();
+        waitABit();
+
     }
 
     @After
@@ -138,9 +147,8 @@ public class CellularNetworkValidatorTest extends TelephonyTest {
         verify(mConnectivityManager).requestNetwork(
                 eq(expectedRequest), eq(mValidatorUT.mNetworkCallback), any());
 
-        // Wait for timeout
-        moveTimeForward(timeout);
-        processAllMessages();
+        // Wait for timeout.
+        waitABit();
 
         assertFalse(mValidated);
         assertEquals(subId, mValidatedSubId);
@@ -205,9 +213,8 @@ public class CellularNetworkValidatorTest extends TelephonyTest {
                 eq(expectedRequest), eq(mValidatorUT.mNetworkCallback), any());
 
         mValidatorUT.mNetworkCallback.onAvailable(new Network(100));
-        // Wait for timeout
-        moveTimeForward(timeout);
-        processAllMessages();
+        // Wait for timeout.
+        waitABit();
 
         assertFalse(mValidated);
         assertEquals(subId, mValidatedSubId);
@@ -216,5 +223,12 @@ public class CellularNetworkValidatorTest extends TelephonyTest {
         assertFalse(mValidatorUT.isValidating());
         assertEquals(SubscriptionManager.INVALID_SUBSCRIPTION_ID,
                 mValidatorUT.getSubIdInValidation());
+    }
+
+    private void waitABit() {
+        try {
+            Thread.sleep(250);
+        } catch (Exception e) {
+        }
     }
 }

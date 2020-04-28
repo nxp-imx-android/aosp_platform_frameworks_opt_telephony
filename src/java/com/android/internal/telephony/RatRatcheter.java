@@ -23,11 +23,11 @@ import android.content.IntentFilter;
 import android.os.PersistableBundle;
 import android.os.UserHandle;
 import android.telephony.AccessNetworkConstants;
-import android.telephony.Annotation.NetworkType;
 import android.telephony.CarrierConfigManager;
 import android.telephony.NetworkRegistrationInfo;
 import android.telephony.Rlog;
 import android.telephony.ServiceState;
+import android.telephony.TelephonyManager.NetworkType;
 import android.util.SparseArray;
 import android.util.SparseIntArray;
 
@@ -196,7 +196,7 @@ public class RatRatcheter {
             final CarrierConfigManager configManager = (CarrierConfigManager)
                     mPhone.getContext().getSystemService(Context.CARRIER_CONFIG_SERVICE);
             if (configManager == null) return;
-            PersistableBundle b = configManager.getConfigForSubId(mPhone.getSubId());
+            PersistableBundle b = configManager.getConfig();
             if (b == null) return;
 
             // Reads an array of strings, eg:

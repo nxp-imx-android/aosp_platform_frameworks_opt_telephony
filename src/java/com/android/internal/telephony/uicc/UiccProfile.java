@@ -34,7 +34,6 @@ import android.os.Message;
 import android.os.PersistableBundle;
 import android.os.Registrant;
 import android.os.RegistrantList;
-import android.os.UserManager;
 import android.preference.PreferenceManager;
 import android.provider.Settings;
 import android.telephony.CarrierConfigManager;
@@ -146,28 +145,15 @@ public class UiccProfile extends IccCard {
             new ContentObserver(new Handler()) {
                 @Override
                 public void onChange(boolean selfChange) {
-                    synchronized (mLock) {
-                        mContext.getContentResolver().unregisterContentObserver(this);
-                        mProvisionCompleteContentObserverRegistered = false;
-                        showCarrierAppNotificationsIfPossible();
+                    mContext.getContentResolver().unregisterContentObserver(this);
+                    for (String pkgName : getUninstalledCarrierPackages()) {
+                        InstallCarrierAppUtils.showNotification(mContext, pkgName);
+                        InstallCarrierAppUtils.registerPackageInstallReceiver(mContext);
                     }
                 }
             };
-    private boolean mProvisionCompleteContentObserverRegistered;
 
-    private final BroadcastReceiver mUserUnlockReceiver = new BroadcastReceiver() {
-        @Override
-        public void onReceive(Context context, Intent intent) {
-            synchronized (mLock) {
-                mContext.unregisterReceiver(this);
-                mUserUnlockReceiverRegistered = false;
-                showCarrierAppNotificationsIfPossible();
-            }
-        }
-    };
-    private boolean mUserUnlockReceiverRegistered;
-
-    private final BroadcastReceiver mCarrierConfigChangedReceiver = new BroadcastReceiver() {
+    private final BroadcastReceiver mReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
             if (intent.getAction().equals(CarrierConfigManager.ACTION_CARRIER_CONFIG_CHANGED)) {
@@ -272,7 +258,7 @@ public class UiccProfile extends IccCard {
 
         IntentFilter intentfilter = new IntentFilter();
         intentfilter.addAction(CarrierConfigManager.ACTION_CARRIER_CONFIG_CHANGED);
-        c.registerReceiver(mCarrierConfigChangedReceiver, intentfilter);
+        c.registerReceiver(mReceiver, intentfilter);
     }
 
     /**
@@ -290,22 +276,11 @@ public class UiccProfile extends IccCard {
             unregisterAllAppEvents();
             unregisterCurrAppEvents();
 
-            if (mProvisionCompleteContentObserverRegistered) {
-                mContext.getContentResolver()
-                        .unregisterContentObserver(mProvisionCompleteContentObserver);
-                mProvisionCompleteContentObserverRegistered = false;
-            }
-
-            if (mUserUnlockReceiverRegistered) {
-                mContext.unregisterReceiver(mUserUnlockReceiver);
-                mUserUnlockReceiverRegistered = false;
-            }
-
             InstallCarrierAppUtils.hideAllNotifications(mContext);
             InstallCarrierAppUtils.unregisterPackageInstallReceiver(mContext);
 
             mCi.unregisterForOffOrNotAvailable(mHandler);
-            mContext.unregisterReceiver(mCarrierConfigChangedReceiver);
+            mContext.unregisterReceiver(mReceiver);
 
             if (mCatService != null) mCatService.dispose();
             for (UiccCardApplication app : mUiccApplications) {
@@ -372,8 +347,8 @@ public class UiccProfile extends IccCard {
         String ccName = config.getString(CarrierConfigManager.KEY_CARRIER_NAME_STRING);
 
         String newCarrierName = null;
-        String currSpn = getServiceProviderName();
-        int nameSource = SubscriptionManager.NAME_SOURCE_SIM_SOURCE;
+        String currSpn = getServiceProviderName();  // Get the name from EF_SPN.
+        int nameSource = SubscriptionManager.NAME_SOURCE_SIM_SPN;
         // If carrier config is priority, use it regardless - the preference
         // and the name were both set by the carrier, so this is safe;
         // otherwise, if the SPN is priority but we don't have one *and* we have
@@ -382,10 +357,18 @@ public class UiccProfile extends IccCard {
             newCarrierName = ccName;
             nameSource = SubscriptionManager.NAME_SOURCE_CARRIER;
         } else if (TextUtils.isEmpty(currSpn)) {
-            // currSpn is empty and could not get name from carrier config; get name from carrier id
+            // currSpn is empty and could not get name from carrier config; get name from PNN or
+            // carrier id
             Phone phone = PhoneFactory.getPhone(mPhoneId);
             if (phone != null) {
-                newCarrierName = phone.getCarrierName();
+                String currPnn = phone.getPlmn();   // Get the name from EF_PNN.
+                if (!TextUtils.isEmpty(currPnn)) {
+                    newCarrierName = currPnn;
+                    nameSource = SubscriptionManager.NAME_SOURCE_SIM_PNN;
+                } else {
+                    newCarrierName = phone.getCarrierName();    // Get the name from carrier id.
+                    nameSource = SubscriptionManager.NAME_SOURCE_DEFAULT_SOURCE;
+                }
             }
         }
 
@@ -1191,13 +1174,10 @@ public class UiccProfile extends IccCard {
         }
     }
 
-    static boolean isPackageBundled(Context context, String pkgName) {
+    static boolean isPackageInstalled(Context context, String pkgName) {
         PackageManager pm = context.getPackageManager();
         try {
-            // We also match hidden-until-installed apps. The assumption here is that some other
-            // mechanism (like CarrierAppUtils) would automatically enable such an app, so we
-            // shouldn't prompt the user about it.
-            pm.getApplicationInfo(pkgName, PackageManager.MATCH_HIDDEN_UNTIL_INSTALLED_COMPONENTS);
+            pm.getPackageInfo(pkgName, PackageManager.GET_ACTIVITIES);
             if (DBG) log(pkgName + " is installed.");
             return true;
         } catch (PackageManager.NameNotFoundException e) {
@@ -1224,47 +1204,21 @@ public class UiccProfile extends IccCard {
 
         synchronized (mLock) {
             mCarrierPrivilegeRegistrants.notifyRegistrants();
-            boolean isProvisioned = isProvisioned();
-            boolean isUnlocked = isUserUnlocked();
-            // Only show dialog if the phone is through with Setup Wizard and is unlocked.
-            // Otherwise, wait for completion and unlock and show a notification instead.
-            if (isProvisioned && isUnlocked) {
+            boolean isProvisioned = Settings.Global.getInt(
+                    mContext.getContentResolver(),
+                    Settings.Global.DEVICE_PROVISIONED, 1) == 1;
+            // Only show dialog if the phone is through with Setup Wizard.  Otherwise, wait for
+            // completion and show a notification instead
+            if (isProvisioned) {
                 for (String pkgName : getUninstalledCarrierPackages()) {
                     promptInstallCarrierApp(pkgName);
                 }
             } else {
-                if (!isProvisioned) {
-                    final Uri uri = Settings.Global.getUriFor(Settings.Global.DEVICE_PROVISIONED);
-                    mContext.getContentResolver().registerContentObserver(
-                            uri,
-                            false,
-                            mProvisionCompleteContentObserver);
-                    mProvisionCompleteContentObserverRegistered = true;
-                }
-                if (!isUnlocked) {
-                    mContext.registerReceiver(
-                            mUserUnlockReceiver, new IntentFilter(Intent.ACTION_USER_UNLOCKED));
-                    mUserUnlockReceiverRegistered = true;
-                }
-            }
-        }
-    }
-
-    private boolean isProvisioned() {
-        return Settings.Global.getInt(
-                mContext.getContentResolver(),
-                Settings.Global.DEVICE_PROVISIONED, 1) == 1;
-    }
-
-    private boolean isUserUnlocked() {
-        return mContext.getSystemService(UserManager.class).isUserUnlocked();
-    }
-
-    private void showCarrierAppNotificationsIfPossible() {
-        if (isProvisioned() && isUserUnlocked()) {
-            for (String pkgName : getUninstalledCarrierPackages()) {
-                InstallCarrierAppUtils.showNotification(mContext, pkgName);
-                InstallCarrierAppUtils.registerPackageInstallReceiver(mContext);
+                final Uri uri = Settings.Global.getUriFor(Settings.Global.DEVICE_PROVISIONED);
+                mContext.getContentResolver().registerContentObserver(
+                        uri,
+                        false,
+                        mProvisionCompleteContentObserver);
             }
         }
     }
@@ -1288,7 +1242,7 @@ public class UiccProfile extends IccCard {
         for (UiccAccessRule accessRule : accessRules) {
             String certHexString = accessRule.getCertificateHexString().toUpperCase();
             String pkgName = certPackageMap.get(certHexString);
-            if (!TextUtils.isEmpty(pkgName) && !isPackageBundled(mContext, pkgName)) {
+            if (!TextUtils.isEmpty(pkgName) && !isPackageInstalled(mContext, pkgName)) {
                 uninstalledCarrierPackages.add(pkgName);
             }
         }

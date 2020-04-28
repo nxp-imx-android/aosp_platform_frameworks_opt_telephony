@@ -31,7 +31,6 @@ import android.telephony.cdma.CdmaSmsCbProgramData;
 import android.telephony.cdma.CdmaSmsCbProgramResults;
 
 import com.android.internal.telephony.CommandsInterface;
-import com.android.internal.telephony.Phone;
 import com.android.internal.telephony.WakeLockStateMachine;
 import com.android.internal.telephony.cdma.sms.BearerData;
 import com.android.internal.telephony.cdma.sms.CdmaSmsAddress;
@@ -52,9 +51,8 @@ public final class CdmaServiceCategoryProgramHandler extends WakeLockStateMachin
     /**
      * Create a new CDMA inbound SMS handler.
      */
-    CdmaServiceCategoryProgramHandler(Context context, CommandsInterface commandsInterface,
-            Phone phone) {
-        super("CdmaServiceCategoryProgramHandler", context, phone);
+    CdmaServiceCategoryProgramHandler(Context context, CommandsInterface commandsInterface) {
+        super("CdmaServiceCategoryProgramHandler", context, null);
         mContext = context;
         mCi = commandsInterface;
     }
@@ -66,9 +64,9 @@ public final class CdmaServiceCategoryProgramHandler extends WakeLockStateMachin
      * @return the new SCPD handler
      */
     static CdmaServiceCategoryProgramHandler makeScpHandler(Context context,
-            CommandsInterface commandsInterface, Phone phone) {
+            CommandsInterface commandsInterface) {
         CdmaServiceCategoryProgramHandler handler = new CdmaServiceCategoryProgramHandler(
-                context, commandsInterface, phone);
+                context, commandsInterface);
         handler.start();
         return handler;
     }

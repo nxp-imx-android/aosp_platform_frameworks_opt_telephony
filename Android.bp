@@ -18,7 +18,6 @@ filegroup {
     srcs: [
         "src/java/android/telephony/**/*.java",
     ],
-    path: "src/java",
 }
 
 filegroup {
@@ -33,7 +32,6 @@ filegroup {
     srcs: [
         "src/java/**/*.java",
     ],
-    path: "src/java",
 }
 
 java_library {

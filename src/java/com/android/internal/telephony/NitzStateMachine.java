@@ -16,11 +16,8 @@
 
 package com.android.internal.telephony;
 
-import android.annotation.NonNull;
-import android.annotation.Nullable;
 import android.content.ContentResolver;
 import android.content.Context;
-import android.os.SystemClock;
 import android.os.SystemProperties;
 import android.provider.Settings;
 import android.telephony.TelephonyManager;
@@ -32,9 +29,6 @@ import java.io.FileDescriptor;
 import java.io.PrintWriter;
 
 /**
- * An interface for the Android component that handles NITZ and related signals for time and time
- * zone detection.
- *
  * {@hide}
  */
 public interface NitzStateMachine {
@@ -62,13 +56,7 @@ public interface NitzStateMachine {
     /**
      * Handle a new NITZ signal being received.
      */
-    void handleNitzReceived(@NonNull TimestampedValue<NitzData> nitzSignal);
-
-    /**
-     * Handle the user putting the device into or out of airplane mode
-     * @param on true if airplane mode has been turned on, false if it's been turned off.
-     */
-    void handleAirplaneModeChanged(boolean on);
+    void handleNitzReceived(TimestampedValue<NitzData> nitzSignal);
 
     /**
      * Dumps the current in-memory state to the supplied PrintWriter.
@@ -81,8 +69,19 @@ public interface NitzStateMachine {
     void dumpLogs(FileDescriptor fd, IndentingPrintWriter ipw, String[] args);
 
     /**
-     * A proxy over read-only device state that allows things like system properties, elapsed
-     * realtime clock to be faked for tests.
+     * Returns the last NITZ data that was cached.
+     */
+    NitzData getCachedNitzData();
+
+    /**
+     * Returns the time zone ID from the most recent time that a time zone could be determined by
+     * this state machine.
+     */
+    String getSavedTimeZoneId();
+
+    /**
+     * A proxy over device state that allows things like system properties, system clock
+     * to be faked for tests.
      */
     interface DeviceState {
 
@@ -103,17 +102,7 @@ public interface NitzStateMachine {
          */
         boolean getIgnoreNitz();
 
-        @Nullable String getNetworkCountryIsoForPhone();
-
-        /**
-         * Returns the same value as {@link SystemClock#elapsedRealtime()}.
-         */
-        long elapsedRealtime();
-
-        /**
-         * Returns the same value as {@link System#currentTimeMillis()}.
-         */
-        long currentTimeMillis();
+        String getNetworkCountryIsoForPhone();
     }
 
     /**
@@ -128,11 +117,11 @@ public interface NitzStateMachine {
         private static final int NITZ_UPDATE_DIFF_DEFAULT = 2000;
         private final int mNitzUpdateDiff;
 
-        private final Phone mPhone;
+        private final GsmCdmaPhone mPhone;
         private final TelephonyManager mTelephonyManager;
         private final ContentResolver mCr;
 
-        public DeviceStateImpl(Phone phone) {
+        public DeviceStateImpl(GsmCdmaPhone phone) {
             mPhone = phone;
 
             Context context = phone.getContext();
@@ -163,19 +152,8 @@ public interface NitzStateMachine {
         }
 
         @Override
-        @Nullable
         public String getNetworkCountryIsoForPhone() {
-            return mTelephonyManager.getNetworkCountryIso(mPhone.getPhoneId());
-        }
-
-        @Override
-        public long elapsedRealtime() {
-            return SystemClock.elapsedRealtime();
-        }
-
-        @Override
-        public long currentTimeMillis() {
-            return System.currentTimeMillis();
+            return mTelephonyManager.getNetworkCountryIsoForPhone(mPhone.getPhoneId());
         }
     }
 }

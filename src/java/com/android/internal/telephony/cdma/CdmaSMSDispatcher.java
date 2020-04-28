@@ -16,8 +16,6 @@
 
 package com.android.internal.telephony.cdma;
 
-import static com.android.internal.telephony.SmsResponse.NO_ERROR_CODE;
-
 import android.annotation.UnsupportedAppUsage;
 import android.os.Message;
 import android.telephony.Rlog;
@@ -102,43 +100,35 @@ public class CdmaSMSDispatcher extends SMSDispatcher {
      */
     @UnsupportedAppUsage
     private void handleCdmaStatusReport(SmsMessage sms) {
-        byte[] pdu = sms.getPdu();
-        int messageRef = sms.mMessageRef;
-        boolean handled = false;
         for (int i = 0, count = deliveryPendingList.size(); i < count; i++) {
             SmsTracker tracker = deliveryPendingList.get(i);
-            if (tracker.mMessageRef == messageRef) {
+            if (tracker.mMessageRef == sms.mMessageRef) {
                 Pair<Boolean, Boolean> result =
-                        mSmsDispatchersController.handleSmsStatusReport(tracker, getFormat(), pdu);
+                        mSmsDispatchersController.handleSmsStatusReport(tracker, getFormat(),
+                                sms.getPdu());
                 if (result.second) {
                     deliveryPendingList.remove(i);
                 }
-                handled = true;
-                break; // Only expect to see one tracker matching this message.
+                break;  // Only expect to see one tracker matching this message.
             }
-        }
-        if (!handled) {
-            // Try to find the sent SMS from the map in ImsSmsDispatcher.
-            mSmsDispatchersController.handleSentOverImsStatusReport(messageRef, getFormat(), pdu);
         }
     }
 
     /** {@inheritDoc} */
     @Override
     public void sendSms(SmsTracker tracker) {
-        int ss = mPhone.getServiceState().getState();
-
         Rlog.d(TAG, "sendSms: "
                 + " isIms()=" + isIms()
                 + " mRetryCount=" + tracker.mRetryCount
                 + " mImsRetry=" + tracker.mImsRetry
                 + " mMessageRef=" + tracker.mMessageRef
                 + " mUsesImsServiceForIms=" + tracker.mUsesImsServiceForIms
-                + " SS=" + ss);
+                + " SS=" + mPhone.getServiceState().getState());
 
+        int ss = mPhone.getServiceState().getState();
         // if sms over IMS is not supported on data and voice is not available...
         if (!isIms() && ss != ServiceState.STATE_IN_SERVICE) {
-            tracker.onFailed(mContext, getNotInServiceError(ss), NO_ERROR_CODE);
+            tracker.onFailed(mContext, getNotInServiceError(ss), 0/*errorCode*/);
             return;
         }
 

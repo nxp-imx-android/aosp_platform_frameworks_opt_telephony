@@ -17,15 +17,13 @@
 package com.android.internal.telephony;
 
 import android.annotation.UnsupportedAppUsage;
-import android.telephony.Annotation.DataFailureCause;
-import android.telephony.Annotation.RadioPowerState;
-import android.telephony.Annotation.SrvccState;
 import android.telephony.CallQuality;
 import android.telephony.CellInfo;
 import android.telephony.CellLocation;
+import android.telephony.DataFailCause;
 import android.telephony.PhoneCapability;
 import android.telephony.PhysicalChannelConfig;
-import android.telephony.emergency.EmergencyNumber;
+import android.telephony.TelephonyManager;
 import android.telephony.ims.ImsReasonInfo;
 
 import java.util.List;
@@ -56,8 +54,6 @@ public interface PhoneNotifier {
 
     void notifyDataActivity(Phone sender);
 
-    void notifyOtaspChanged(Phone sender, int otaspMode);
-
     void notifyCellInfo(Phone sender, List<CellInfo> cellInfo);
 
     /** Notify of change to PhysicalChannelConfiguration. */
@@ -70,10 +66,10 @@ public interface PhoneNotifier {
     void notifyImsDisconnectCause(Phone sender, ImsReasonInfo imsReasonInfo);
 
     public void notifyPreciseDataConnectionFailed(Phone sender, String apnType, String apn,
-                                                  @DataFailureCause int failCause);
+                                                  @DataFailCause.FailCause int failCause);
 
     /** send a notification that the SRVCC state has changed.*/
-    void notifySrvccStateChanged(Phone sender, @SrvccState int state);
+    void notifySrvccStateChanged(Phone sender, @TelephonyManager.SrvccState int state);
 
     public void notifyVoiceActivationStateChanged(Phone sender, int activationState);
 
@@ -85,16 +81,10 @@ public interface PhoneNotifier {
 
     public void notifyPhoneCapabilityChanged(PhoneCapability capability);
 
-    void notifyRadioPowerStateChanged(Phone sender, @RadioPowerState int state);
+    void notifyRadioPowerStateChanged(Phone sender, @TelephonyManager.RadioPowerState int state);
 
     /** Notify of change to EmergencyNumberList. */
     void notifyEmergencyNumberList(Phone sender);
-
-    /** Notify of a change for Outgoing Emergency Call. */
-    void notifyOutgoingEmergencyCall(Phone sender, EmergencyNumber emergencyNumber);
-
-    /** Notify of a change for Outgoing Emergency Sms. */
-    void notifyOutgoingEmergencySms(Phone sender, EmergencyNumber emergencyNumber);
 
     /** Notify of a change to the call quality of an active foreground call. */
     void notifyCallQualityChanged(Phone sender, CallQuality callQuality, int callNetworkType);

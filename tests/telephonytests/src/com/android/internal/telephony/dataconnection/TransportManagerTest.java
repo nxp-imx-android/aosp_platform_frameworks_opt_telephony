@@ -16,6 +16,8 @@
 
 package com.android.internal.telephony.dataconnection;
 
+import static com.android.internal.telephony.TelephonyTestUtils.waitForMs;
+
 import static org.junit.Assert.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Matchers.anyLong;
@@ -25,13 +27,12 @@ import static org.mockito.Mockito.verify;
 
 import android.os.AsyncResult;
 import android.os.Handler;
+import android.os.HandlerThread;
 import android.os.Message;
 import android.telephony.AccessNetworkConstants;
 import android.telephony.AccessNetworkConstants.AccessNetworkType;
 import android.telephony.data.ApnSetting;
 import android.test.suitebuilder.annotation.SmallTest;
-import android.testing.AndroidTestingRunner;
-import android.testing.TestableLooper;
 
 import com.android.internal.telephony.TelephonyTest;
 import com.android.internal.telephony.dataconnection.AccessNetworksManager.QualifiedNetworks;
@@ -40,7 +41,6 @@ import com.android.internal.telephony.dataconnection.TransportManager.HandoverPa
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
-import org.junit.runner.RunWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 
@@ -50,8 +50,6 @@ import java.util.Arrays;
 import java.util.LinkedList;
 import java.util.List;
 
-@RunWith(AndroidTestingRunner.class)
-@TestableLooper.RunWithLooper
 public class TransportManagerTest extends TelephonyTest {
     private static final int EVENT_HANDOVER_NEEDED = 1;
 
@@ -60,15 +58,33 @@ public class TransportManagerTest extends TelephonyTest {
 
     private TransportManager mTransportManager;
 
+    private TransportManagerTestHandler mTransportManagerTestHandler;
+
+    private class TransportManagerTestHandler extends HandlerThread {
+
+        private TransportManagerTestHandler(String name) {
+            super(name);
+        }
+
+        @Override
+        public void onLooperPrepared() {
+            mTransportManager = new TransportManager(mPhone);
+            setReady(true);
+        }
+    }
+
     @Before
     public void setUp() throws Exception {
         super.setUp(getClass().getSimpleName());
-        mTransportManager = new TransportManager(mPhone);
-        processAllMessages();
+        mTransportManagerTestHandler = new TransportManagerTestHandler(TAG);
+        mTransportManagerTestHandler.start();
+        waitUntilReady();
     }
 
     @After
     public void tearDown() throws Exception {
+        mTransportManagerTestHandler.quit();
+        mTransportManagerTestHandler.join();
         super.tearDown();
     }
 
@@ -84,7 +100,7 @@ public class TransportManagerTest extends TelephonyTest {
                                 AccessNetworkType.IWLAN})));
         mTransportManager.obtainMessage(1 /* EVENT_QUALIFIED_NETWORKS_CHANGED */,
                 new AsyncResult(null, networkList, null)).sendToTarget();
-        processAllMessages();
+        waitForMs(100);
         // Verify handover needed event was not sent
         verify(mTestHandler, never()).sendMessageAtTime(any(Message.class), anyLong());
 
@@ -98,7 +114,7 @@ public class TransportManagerTest extends TelephonyTest {
                                 AccessNetworkType.EUTRAN})));
         mTransportManager.obtainMessage(1 /* EVENT_QUALIFIED_NETWORKS_CHANGED */,
                 new AsyncResult(null, networkList, null)).sendToTarget();
-        processAllMessages();
+        waitForMs(100);
 
         ArgumentCaptor<Message> messageArgumentCaptor = ArgumentCaptor.forClass(Message.class);
 
@@ -124,7 +140,7 @@ public class TransportManagerTest extends TelephonyTest {
                                 AccessNetworkType.IWLAN})));
         mTransportManager.obtainMessage(1 /* EVENT_QUALIFIED_NETWORKS_CHANGED */,
                 new AsyncResult(null, networkList, null)).sendToTarget();
-        processAllMessages();
+        waitForMs(100);
 
         messageArgumentCaptor = ArgumentCaptor.forClass(Message.class);
 
@@ -159,7 +175,7 @@ public class TransportManagerTest extends TelephonyTest {
                                 AccessNetworkType.IWLAN})));
         mTransportManager.obtainMessage(1 /* EVENT_QUALIFIED_NETWORKS_CHANGED */,
                 new AsyncResult(null, networkList, null)).sendToTarget();
-        processAllMessages();
+        waitForMs(100);
         // Verify handover needed event was not sent
         verify(mTestHandler, never()).sendMessageAtTime(any(Message.class), anyLong());
 
@@ -170,7 +186,7 @@ public class TransportManagerTest extends TelephonyTest {
                                 AccessNetworkType.IWLAN})));
         mTransportManager.obtainMessage(1 /* EVENT_QUALIFIED_NETWORKS_CHANGED */,
                 new AsyncResult(null, networkList, null)).sendToTarget();
-        processAllMessages();
+        waitForMs(100);
         // Verify handover needed event was not sent
         verify(mTestHandler, never()).sendMessageAtTime(any(Message.class), anyLong());
     }
@@ -193,7 +209,7 @@ public class TransportManagerTest extends TelephonyTest {
                                 AccessNetworkType.IWLAN})));
         mTransportManager.obtainMessage(1 /* EVENT_QUALIFIED_NETWORKS_CHANGED */,
                 new AsyncResult(null, networkList, null)).sendToTarget();
-        processAllMessages();
+        waitForMs(100);
         // Verify handover needed event was not sent
         verify(mTestHandler, never()).sendMessageAtTime(any(Message.class), anyLong());
 
@@ -207,7 +223,7 @@ public class TransportManagerTest extends TelephonyTest {
                                 AccessNetworkType.EUTRAN})));
         mTransportManager.obtainMessage(1 /* EVENT_QUALIFIED_NETWORKS_CHANGED */,
                 new AsyncResult(null, networkList, null)).sendToTarget();
-        processAllMessages();
+        waitForMs(100);
 
         ArgumentCaptor<Message> messageArgumentCaptor = ArgumentCaptor.forClass(Message.class);
 
@@ -229,7 +245,7 @@ public class TransportManagerTest extends TelephonyTest {
                                 AccessNetworkType.IWLAN})));
         mTransportManager.obtainMessage(1 /* EVENT_QUALIFIED_NETWORKS_CHANGED */,
                 new AsyncResult(null, networkList, null)).sendToTarget();
-        processAllMessages();
+        waitForMs(100);
 
         // Verify handover needed event was sent only once (for the previous change)
         verify(mTestHandler, times(1)).sendMessageAtTime(messageArgumentCaptor.capture(),
@@ -243,7 +259,7 @@ public class TransportManagerTest extends TelephonyTest {
         params.callback.onCompleted(true, false);
         assertEquals(AccessNetworkConstants.TRANSPORT_TYPE_WLAN,
                 mTransportManager.getCurrentTransport(ApnSetting.TYPE_IMS));
-        processAllMessages();
+        waitForMs(100);
 
         listQueue = getAvailableNetworksList();
         // Verify the queue is empty.

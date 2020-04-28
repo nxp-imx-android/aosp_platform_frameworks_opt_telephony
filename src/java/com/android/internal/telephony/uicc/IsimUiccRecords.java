@@ -24,7 +24,6 @@ import android.os.Message;
 import android.telephony.Rlog;
 
 import com.android.internal.telephony.CommandsInterface;
-import com.android.internal.telephony.PhoneConstants;
 import com.android.internal.telephony.gsm.SimTlv;
 
 import java.io.FileDescriptor;
@@ -89,12 +88,17 @@ public class IsimUiccRecords extends IccRecords implements IsimRecords {
         mRecordsToLoad = 0;
         // Start off by setting empty state
         resetRecords();
+
+        mParentApp.registerForReady(this, EVENT_APP_READY, null);
         if (DBG) log("IsimUiccRecords X ctor this=" + this);
     }
 
     @Override
     public void dispose() {
         log("Disposing " + this);
+        //Unregister for all events
+        mCi.unregisterForIccRefresh(this);
+        mParentApp.unregisterForReady(this);
         resetRecords();
         super.dispose();
     }
@@ -112,6 +116,10 @@ public class IsimUiccRecords extends IccRecords implements IsimRecords {
 
         try {
             switch (msg.what) {
+                case EVENT_APP_READY:
+                    onReady();
+                    break;
+
                 case EVENT_REFRESH:
                     broadcastRefresh();
                     super.handleMessage(msg);
@@ -352,7 +360,6 @@ public class IsimUiccRecords extends IccRecords implements IsimRecords {
     private void broadcastRefresh() {
         Intent intent = new Intent(INTENT_ISIM_REFRESH);
         log("send ISim REFRESH: " + INTENT_ISIM_REFRESH);
-        intent.putExtra(PhoneConstants.PHONE_KEY, mParentApp.getPhoneId());
         mContext.sendBroadcast(intent);
     }
 

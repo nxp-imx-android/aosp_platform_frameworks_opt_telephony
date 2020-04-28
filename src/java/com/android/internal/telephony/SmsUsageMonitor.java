@@ -21,7 +21,6 @@ import android.app.AppGlobals;
 import android.content.ContentResolver;
 import android.content.Context;
 import android.content.pm.ApplicationInfo;
-import android.content.pm.PackageManager.NameNotFoundException;
 import android.content.res.XmlResourceParser;
 import android.database.ContentObserver;
 import android.os.Binder;
@@ -572,22 +571,21 @@ public class SmsUsageMonitor {
         }).start();
     }
 
-    private void checkCallerIsSystemOrPhoneOrSameApp(String pkg) {
+    private static void checkCallerIsSystemOrPhoneOrSameApp(String pkg) {
         int uid = Binder.getCallingUid();
         int appId = UserHandle.getAppId(uid);
         if (appId == Process.SYSTEM_UID || appId == Process.PHONE_UID || uid == 0) {
             return;
         }
         try {
-            ApplicationInfo ai = mContext.getPackageManager().getApplicationInfoAsUser(
-                    pkg, 0, UserHandle.getUserHandleForUid(uid));
-
-          if (UserHandle.getAppId(ai.uid) != UserHandle.getAppId(uid)) {
+            ApplicationInfo ai = AppGlobals.getPackageManager().getApplicationInfo(
+                    pkg, 0, UserHandle.getCallingUserId());
+            if (!UserHandle.isSameApp(ai.uid, uid)) {
                 throw new SecurityException("Calling uid " + uid + " gave package"
                         + pkg + " which is owned by uid " + ai.uid);
             }
-        } catch (NameNotFoundException ex) {
-            throw new SecurityException("Unknown package " + pkg + "\n" + ex);
+        } catch (RemoteException re) {
+            throw new SecurityException("Unknown package " + pkg + "\n" + re);
         }
     }
 

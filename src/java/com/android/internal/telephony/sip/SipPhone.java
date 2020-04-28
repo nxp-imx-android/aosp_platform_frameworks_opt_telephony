@@ -29,9 +29,9 @@ import android.os.AsyncResult;
 import android.os.Message;
 import android.telephony.DisconnectCause;
 import android.telephony.PhoneNumberUtils;
-import android.telephony.Rlog;
 import android.telephony.ServiceState;
 import android.text.TextUtils;
+import android.telephony.Rlog;
 
 import com.android.internal.telephony.Call;
 import com.android.internal.telephony.CallStateException;
@@ -39,8 +39,6 @@ import com.android.internal.telephony.Connection;
 import com.android.internal.telephony.Phone;
 import com.android.internal.telephony.PhoneConstants;
 import com.android.internal.telephony.PhoneNotifier;
-
-import dalvik.annotation.compat.UnsupportedAppUsage;
 
 import java.text.ParseException;
 import java.util.List;
@@ -61,9 +59,7 @@ public class SipPhone extends SipPhoneBase {
 
     // A call that is ringing or (call) waiting
     private SipCall mRingingCall = new SipCall();
-    @UnsupportedAppUsage
     private SipCall mForegroundCall = new SipCall();
-    @UnsupportedAppUsage
     private SipCall mBackgroundCall = new SipCall();
 
     private SipManager mSipManager;
@@ -435,7 +431,6 @@ public class SipPhone extends SipPhoneBase {
         return false;
     }
 
-    @UnsupportedAppUsage
     private void log(String s) {
         Rlog.d(LOG_TAG, s);
     }
@@ -444,7 +439,6 @@ public class SipPhone extends SipPhoneBase {
         Rlog.d(LOG_TAG, s);
     }
 
-    @UnsupportedAppUsage
     private void loge(String s) {
         Rlog.e(LOG_TAG, s);
     }
@@ -464,7 +458,6 @@ public class SipPhone extends SipPhoneBase {
             setState(Call.State.IDLE);
         }
 
-        @UnsupportedAppUsage
         void switchWith(SipCall that) {
             if (SC_DBG) log("switchWith");
             synchronized (SipPhone.class) {
@@ -601,7 +594,6 @@ public class SipPhone extends SipPhoneBase {
                     audioGroup.getMode()));
         }
 
-        @UnsupportedAppUsage
         void hold() throws CallStateException {
             if (SC_DBG) log("hold:");
             setState(State.HOLDING);
@@ -609,11 +601,10 @@ public class SipPhone extends SipPhoneBase {
             setAudioGroupMode();
         }
 
-        @UnsupportedAppUsage
         void unhold() throws CallStateException {
             if (SC_DBG) log("unhold:");
             setState(State.ACTIVE);
-            AudioGroup audioGroup = new AudioGroup(mContext);
+            AudioGroup audioGroup = new AudioGroup();
             for (Connection c : mConnections) {
                 ((SipConnection) c).unhold(audioGroup);
             }

@@ -69,8 +69,6 @@ import com.android.internal.telephony.uicc.IccCardStatus;
 import com.android.internal.telephony.uicc.IccIoResult;
 import com.android.internal.telephony.uicc.IccSlotStatus;
 
-import dalvik.annotation.compat.UnsupportedAppUsage;
-
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -115,7 +113,6 @@ public class SimulatedCommands extends BaseCommands
 
     //***** Instance Variables
 
-    @UnsupportedAppUsage
     SimulatedGsmCallState simulatedCallState;
     HandlerThread mHandlerThread;
     SimLockState mSimLockedState;
@@ -156,7 +153,6 @@ public class SimulatedCommands extends BaseCommands
 
     int mNextCallFailCause = CallFailCause.NORMAL_CLEARING;
 
-    @UnsupportedAppUsage
     private boolean mDcSuccess = true;
     private SetupDataCallResult mSetupDataCallResult;
     private boolean mIsRadioPowerFailResponse = false;
@@ -805,7 +801,6 @@ public class SimulatedCommands extends BaseCommands
      *  ar.userObject contains the original value of result.obj
      *  ar.result is null on success and failure
      */
-    @UnsupportedAppUsage
     @Override
     public void acceptCall (Message result) {
         boolean success;
@@ -1099,7 +1094,7 @@ public class SimulatedCommands extends BaseCommands
     @Override
     public void sendSMS (String smscPDU, String pdu, Message result) {
         SimulatedCommandsVerifier.getInstance().sendSMS(smscPDU, pdu, result);
-        resultSuccess(result, new SmsResponse(0 /*messageRef*/, null, SmsResponse.NO_ERROR_CODE));
+        resultSuccess(result, new SmsResponse(0 /*messageRef*/, null, 0));
     }
 
     /**
@@ -1134,7 +1129,7 @@ public class SimulatedCommands extends BaseCommands
     }
 
     @Override
-    public void writeSmsToRuim(int status, byte[] pdu, Message response) {
+    public void writeSmsToRuim(int status, String pdu, Message response) {
         Rlog.d(LOG_TAG, "Write SMS to RUIM with status " + status);
         unimplemented(response);
     }
@@ -1659,7 +1654,6 @@ public class SimulatedCommands extends BaseCommands
 
     //***** Private Methods
 
-    @UnsupportedAppUsage
     private void unimplemented(Message result) {
         if (result != null) {
             AsyncResult.forMessage(result).exception
@@ -1673,7 +1667,6 @@ public class SimulatedCommands extends BaseCommands
         }
     }
 
-    @UnsupportedAppUsage
     private void resultSuccess(Message result, Object ret) {
         if (result != null) {
             AsyncResult.forMessage(result).result = ret;
@@ -1685,7 +1678,6 @@ public class SimulatedCommands extends BaseCommands
         }
     }
 
-    @UnsupportedAppUsage
     private void resultFail(Message result, Object ret, Throwable tr) {
         if (result != null) {
             AsyncResult.forMessage(result, ret, tr);
@@ -1973,7 +1965,7 @@ public class SimulatedCommands extends BaseCommands
     public void sendImsCdmaSms(byte[] pdu, int retry, int messageRef,
             Message response){
         SimulatedCommandsVerifier.getInstance().sendImsCdmaSms(pdu, retry, messageRef, response);
-        resultSuccess(response, new SmsResponse(0 /*messageRef*/, null, SmsResponse.NO_ERROR_CODE));
+        resultSuccess(response, new SmsResponse(0 /*messageRef*/, null, 0));
     }
 
     @Override
@@ -1981,7 +1973,7 @@ public class SimulatedCommands extends BaseCommands
             int retry, int messageRef, Message response){
         SimulatedCommandsVerifier.getInstance().sendImsGsmSms(smscPDU, pdu, retry, messageRef,
                 response);
-        resultSuccess(response, new SmsResponse(0 /*messageRef*/, null, SmsResponse.NO_ERROR_CODE));
+        resultSuccess(response, new SmsResponse(0 /*messageRef*/, null, 0));
     }
 
     @Override

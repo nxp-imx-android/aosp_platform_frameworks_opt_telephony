@@ -934,13 +934,6 @@ public class GsmCdmaPhone extends Phone {
         if ( imsPhone != null && imsPhone.getRingingCall().isRinging()) {
             return imsPhone.getRingingCall();
         }
-        //It returns the ringing connections which during SRVCC handover
-        if (!mCT.mRingingCall.isRinging()
-                && mCT.getRingingHandoverConnection() != null
-                && mCT.getRingingHandoverConnection().getCall() != null
-                && mCT.getRingingHandoverConnection().getCall().isRinging()) {
-            return mCT.getRingingHandoverConnection().getCall();
-        }
         return mCT.mRingingCall;
     }
 
@@ -1541,20 +1534,10 @@ public class GsmCdmaPhone extends Phone {
                         b.getString(CarrierConfigManager.KEY_DEFAULT_VM_NUMBER_STRING);
                 String defaultVmNumberRoaming =
                         b.getString(CarrierConfigManager.KEY_DEFAULT_VM_NUMBER_ROAMING_STRING);
-                String defaultVmNumberRoamingAndImsUnregistered = b.getString(
-                        CarrierConfigManager
-                                .KEY_DEFAULT_VM_NUMBER_ROAMING_AND_IMS_UNREGISTERED_STRING);
-
-                if (!TextUtils.isEmpty(defaultVmNumber)) number = defaultVmNumber;
-                if (mSST.mSS.getRoaming()) {
-                    if (!TextUtils.isEmpty(defaultVmNumberRoamingAndImsUnregistered)
-                            && !mSST.isImsRegistered()) {
-                        // roaming and IMS unregistered case if CC configured
-                        number = defaultVmNumberRoamingAndImsUnregistered;
-                    } else if (!TextUtils.isEmpty(defaultVmNumberRoaming)) {
-                        // roaming default case if CC configured
-                        number = defaultVmNumberRoaming;
-                    }
+                if (!TextUtils.isEmpty(defaultVmNumberRoaming) && mSST.mSS.getRoaming()) {
+                    number = defaultVmNumberRoaming;
+                } else if (!TextUtils.isEmpty(defaultVmNumber)) {
+                    number = defaultVmNumber;
                 }
             }
         }
@@ -2365,30 +2348,10 @@ public class GsmCdmaPhone extends Phone {
     @UnsupportedAppUsage
     private void syncClirSetting() {
         SharedPreferences sp = PreferenceManager.getDefaultSharedPreferences(getContext());
-        migrateClirSettingIfNeeded(sp);
-
-        int clirSetting = sp.getInt(CLIR_KEY + getSubId(), -1);
-        Rlog.i(LOG_TAG, "syncClirSetting: " + CLIR_KEY + getSubId() + "=" + clirSetting);
+        int clirSetting = sp.getInt(CLIR_KEY + getPhoneId(), -1);
+        Rlog.i(LOG_TAG, "syncClirSetting: " + CLIR_KEY + getPhoneId() + "=" + clirSetting);
         if (clirSetting >= 0) {
             mCi.setCLIR(clirSetting, null);
-        }
-    }
-
-    /**
-     * Migrate CLIR setting with sudId mapping once if there's CLIR setting mapped with phoneId.
-     */
-    private void migrateClirSettingIfNeeded(SharedPreferences sp) {
-        // Get old CLIR setting mapped with phoneId
-        int clirSetting = sp.getInt("clir_key" + getPhoneId(), -1);
-        if (clirSetting >= 0) {
-            // Migrate CLIR setting to new shared preference key with subId
-            Rlog.i(LOG_TAG, "Migrate CLIR setting: value=" + clirSetting + ", clir_key"
-                    + getPhoneId() + " -> " + CLIR_KEY + getSubId());
-            SharedPreferences.Editor editor = sp.edit();
-            editor.putInt(CLIR_KEY + getSubId(), clirSetting);
-
-            // Remove old CLIR setting key
-            editor.remove("clir_key" + getPhoneId()).commit();
         }
     }
 
@@ -3478,6 +3441,11 @@ public class GsmCdmaPhone extends Phone {
     }
 
     @Override
+    public int getOtasp() {
+        return mSST.getOtasp();
+    }
+
+    @Override
     public int getCdmaEriIconIndex() {
         if (isPhoneTypeGsm()) {
             return super.getCdmaEriIconIndex();
@@ -3716,15 +3684,15 @@ public class GsmCdmaPhone extends Phone {
         pw.println(" mSST=" + mSST);
         pw.println(" mPendingMMIs=" + mPendingMMIs);
         pw.println(" mIccPhoneBookIntManager=" + mIccPhoneBookIntManager);
-        pw.println(" mImei=" + pii(mImei));
-        pw.println(" mImeiSv=" + pii(mImeiSv));
-        pw.println(" mVmNumber=" + pii(mVmNumber));
+        if (VDBG) pw.println(" mImei=" + mImei);
+        if (VDBG) pw.println(" mImeiSv=" + mImeiSv);
+        if (VDBG) pw.println(" mVmNumber=" + mVmNumber);
         pw.println(" mCdmaSSM=" + mCdmaSSM);
         pw.println(" mCdmaSubscriptionSource=" + mCdmaSubscriptionSource);
         pw.println(" mWakeLock=" + mWakeLock);
         pw.println(" isInEcm()=" + isInEcm());
-        pw.println(" mEsn=" + pii(mEsn));
-        pw.println(" mMeid=" + pii(mMeid));
+        if (VDBG) pw.println(" mEsn=" + mEsn);
+        if (VDBG) pw.println(" mMeid=" + mMeid);
         pw.println(" mCarrierOtaSpNumSchema=" + mCarrierOtaSpNumSchema);
         if (!isPhoneTypeGsm()) {
             pw.println(" getCdmaEriIconIndex()=" + getCdmaEriIconIndex());
@@ -3814,7 +3782,7 @@ public class GsmCdmaPhone extends Phone {
         int subId = getSubId();
         SubscriptionInfo subInfo = SubscriptionManager.from(getContext())
                 .getActiveSubscriptionInfo(subId);
-        if (subInfo == null || TextUtils.isEmpty(subInfo.getCountryIso())) {
+        if (subInfo == null) {
             return null;
         }
         return subInfo.getCountryIso().toUpperCase();
@@ -3938,10 +3906,6 @@ public class GsmCdmaPhone extends Phone {
     @UnsupportedAppUsage
     private void loge(String s) {
         Rlog.e(LOG_TAG, "[" + mPhoneId + "] " + s);
-    }
-
-    private static String pii(String s) {
-        return Rlog.pii(LOG_TAG, s);
     }
 
     @Override

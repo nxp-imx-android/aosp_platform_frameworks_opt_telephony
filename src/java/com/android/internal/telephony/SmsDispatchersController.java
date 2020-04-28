@@ -18,9 +18,6 @@ package com.android.internal.telephony;
 
 import static com.android.internal.telephony.IccSmsInterfaceManager.SMS_MESSAGE_PERIOD_NOT_SPECIFIED;
 import static com.android.internal.telephony.IccSmsInterfaceManager.SMS_MESSAGE_PRIORITY_NOT_SPECIFIED;
-import static com.android.internal.telephony.SmsResponse.NO_ERROR_CODE;
-import static com.android.internal.telephony.cdma.sms.BearerData.ERROR_NONE;
-import static com.android.internal.telephony.cdma.sms.BearerData.ERROR_TEMPORARY;
 
 import android.app.Activity;
 import android.app.PendingIntent;
@@ -52,7 +49,6 @@ import java.io.FileDescriptor;
 import java.io.PrintWriter;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.Map.Entry;
 
 /**
  *
@@ -462,7 +458,7 @@ public class SmsDispatchersController extends Handler {
                 || (map.containsKey("data") && map.containsKey("destPort"))))) {
             // should never come here...
             Rlog.e(TAG, "sendRetrySms failed to re-encode per missing fields!");
-            tracker.onFailed(mContext, SmsManager.RESULT_SMS_SEND_RETRY_FAILED, NO_ERROR_CODE);
+            tracker.onFailed(mContext, SmsManager.RESULT_ERROR_GENERIC_FAILURE, 0/*errorCode*/);
             return;
         }
         String scAddr = (String) map.get("scAddr");
@@ -749,30 +745,6 @@ public class SmsDispatchersController extends Handler {
     }
 
     /**
-     * Handles the sms status report for the sent sms through ImsSmsDispatcher. Carriers can send
-     * the report over CS even if the previously submitted SMS-SUBMIT was sent over IMS. For this
-     * case, finds a corresponding tracker from the tracker map in ImsSmsDispatcher and handles it.
-     *
-     * @param messageRef the TP-MR of the previously submitted SMS-SUBMIT in the report.
-     * @param format the format.
-     * @param pdu the pdu of the report.
-     */
-    public void handleSentOverImsStatusReport(int messageRef, String format, byte[] pdu) {
-        for (Entry<Integer, SMSDispatcher.SmsTracker> entry :
-                mImsSmsDispatcher.mTrackers.entrySet()) {
-            int token = entry.getKey();
-            SMSDispatcher.SmsTracker tracker = entry.getValue();
-            if (tracker.mMessageRef == messageRef) {
-                Pair<Boolean, Boolean> result = handleSmsStatusReport(tracker, format, pdu);
-                if (result.second) {
-                    mImsSmsDispatcher.mTrackers.remove(token);
-                }
-                return;
-            }
-        }
-    }
-
-    /**
      * Triggers the correct method for handling the sms status report based on the format.
      *
      * @param tracker the sms tracker.
@@ -794,23 +766,9 @@ public class SmsDispatchersController extends Handler {
 
     private Pair<Boolean, Boolean> handleCdmaStatusReport(SMSDispatcher.SmsTracker tracker,
             String format, byte[] pdu) {
-        com.android.internal.telephony.cdma.SmsMessage sms =
-                com.android.internal.telephony.cdma.SmsMessage.createFromPdu(pdu);
-        boolean complete = false;
-        boolean success = false;
-        if (sms != null) {
-            // The status is composed of an error class (bits 25-24) and a status code (bits 23-16).
-            int errorClass = (sms.getStatus() >> 24) & 0x03;
-            if (errorClass != ERROR_TEMPORARY) {
-                // Update the message status (COMPLETE or FAILED)
-                tracker.updateSentMessageStatus(
-                        mContext,
-                        (errorClass == ERROR_NONE) ? Sms.STATUS_COMPLETE : Sms.STATUS_FAILED);
-                complete = true;
-            }
-            success = triggerDeliveryIntent(tracker, format, pdu);
-        }
-        return new Pair(success, complete);
+        tracker.updateSentMessageStatus(mContext, Sms.STATUS_COMPLETE);
+        boolean success = triggerDeliveryIntent(tracker, format, pdu);
+        return new Pair(success, true /* complete */);
     }
 
     private Pair<Boolean, Boolean> handleGsmStatusReport(SMSDispatcher.SmsTracker tracker,

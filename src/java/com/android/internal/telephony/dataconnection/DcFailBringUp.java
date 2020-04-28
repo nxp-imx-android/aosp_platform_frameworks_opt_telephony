@@ -17,7 +17,6 @@
 package com.android.internal.telephony.dataconnection;
 
 import android.content.Intent;
-import android.telephony.Annotation.DataFailureCause;
 import android.telephony.DataFailCause;
 import android.telephony.Rlog;
 
@@ -42,7 +41,7 @@ public class DcFailBringUp {
     // failCause with its --ei option name and default value
     static final String FAIL_CAUSE = "fail_cause";
     static final int DEFAULT_FAIL_CAUSE = DataFailCause.ERROR_UNSPECIFIED;
-    @DataFailureCause
+    @DataFailCause.FailCause
     int mFailCause;
 
     // suggestedRetryTime with its --ei option name and default value
@@ -63,7 +62,7 @@ public class DcFailBringUp {
         }
     }
 
-    public void saveParameters(int counter, @DataFailureCause int failCause,
+    public void saveParameters(int counter, @DataFailCause.FailCause int failCause,
                                int suggestedRetryTime) {
         mCounter = counter;
         mFailCause = DataFailCause.getFailCause(failCause);

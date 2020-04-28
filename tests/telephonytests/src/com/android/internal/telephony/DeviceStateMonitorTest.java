@@ -18,57 +18,73 @@ package com.android.internal.telephony;
 import static android.hardware.radio.V1_0.DeviceStateType.CHARGING_STATE;
 import static android.hardware.radio.V1_0.DeviceStateType.LOW_DATA_EXPECTED;
 
+import static com.android.internal.telephony.TelephonyTestUtils.waitForMs;
+
 import static org.junit.Assert.assertEquals;
 import static org.mockito.Matchers.eq;
 import static org.mockito.Matchers.nullable;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
-import static java.util.Arrays.asList;
-
 import android.content.Intent;
 import android.net.ConnectivityManager;
 import android.os.BatteryManager;
+import android.os.HandlerThread;
 import android.os.Message;
 import android.test.suitebuilder.annotation.MediumTest;
-import android.testing.AndroidTestingRunner;
-import android.testing.TestableLooper;
 
 import androidx.test.filters.FlakyTest;
 
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
-import org.junit.runner.RunWith;
+
+import static java.util.Arrays.asList;
 
 import java.util.ArrayList;
 
-@RunWith(AndroidTestingRunner.class)
-@TestableLooper.RunWithLooper
 public class DeviceStateMonitorTest extends TelephonyTest {
 
     private DeviceStateMonitor mDSM;
 
+    private DeviceStateMonitorTestHandler mDeviceStateMonitorTestHandler;
+
+    private class DeviceStateMonitorTestHandler extends HandlerThread {
+
+        private DeviceStateMonitorTestHandler(String name) {
+            super(name);
+        }
+
+        @Override
+        public void onLooperPrepared() {
+            mDSM = new DeviceStateMonitor(mPhone);
+            setReady(true);
+        }
+    }
+
     @Before
     public void setUp() throws Exception {
         super.setUp(getClass().getSimpleName());
-        mDSM = new DeviceStateMonitor(mPhone);
-        processAllMessages();
+        mDeviceStateMonitorTestHandler = new DeviceStateMonitorTestHandler(TAG);
+        mDeviceStateMonitorTestHandler.start();
+        waitUntilReady();
     }
 
     @After
     public void tearDown() throws Exception {
-        mDSM = null;
+        mDeviceStateMonitor = null;
+        mDeviceStateMonitorTestHandler.quit();
         super.tearDown();
     }
 
     @FlakyTest
-    public void testTethering() {
+    public void testTethering() throws Exception {
         // Turn tethering on
         Intent intent = new Intent(ConnectivityManager.ACTION_TETHER_STATE_CHANGED);
         intent.putExtra(ConnectivityManager.EXTRA_ACTIVE_TETHER, new ArrayList<>(asList("abc")));
         mContext.sendBroadcast(intent);
-        processAllMessages();
+
+        waitForMs(100);
 
         verify(mSimulatedCommandsVerifier, times(1)).setUnsolResponseFilter(eq(6),
                 nullable(Message.class));
@@ -77,7 +93,7 @@ public class DeviceStateMonitorTest extends TelephonyTest {
         intent = new Intent(ConnectivityManager.ACTION_TETHER_STATE_CHANGED);
         intent.putExtra(ConnectivityManager.EXTRA_ACTIVE_TETHER, new ArrayList<>());
         mContext.sendBroadcast(intent);
-        processAllMessages();
+        waitForMs(100);
 
         verify(mSimulatedCommandsVerifier, times(1)).setUnsolResponseFilter(eq(0),
                 nullable(Message.class));
@@ -87,11 +103,11 @@ public class DeviceStateMonitorTest extends TelephonyTest {
     }
 
     @FlakyTest
-    public void testCharging() {
+    public void testCharging() throws Exception {
         // Charging
         Intent intent = new Intent(BatteryManager.ACTION_CHARGING);
         mContext.sendBroadcast(intent);
-        processAllMessages();
+        waitForMs(100);
 
         verify(mSimulatedCommandsVerifier, times(1)).sendDeviceState(eq(CHARGING_STATE),
                 eq(true), nullable(Message.class));
@@ -99,7 +115,7 @@ public class DeviceStateMonitorTest extends TelephonyTest {
         // Not charging
         intent = new Intent(BatteryManager.ACTION_DISCHARGING);
         mContext.sendBroadcast(intent);
-        processAllMessages();
+        waitForMs(100);
 
         verify(mSimulatedCommandsVerifier, times(1)).setUnsolResponseFilter(eq(0),
                 nullable(Message.class));
@@ -112,7 +128,7 @@ public class DeviceStateMonitorTest extends TelephonyTest {
     }
 
     @FlakyTest
-    public void testReset() {
+    public void testReset() throws Exception {
         mDSM.obtainMessage(6).sendToTarget();
 
         verify(mSimulatedCommandsVerifier, times(1)).setUnsolResponseFilter(eq(-1),
@@ -120,18 +136,20 @@ public class DeviceStateMonitorTest extends TelephonyTest {
     }
 
     private void sendStates(int screenState, int chargingState, int wifiState) {
+        setReady(false);
         mDSM.obtainMessage(
                 DeviceStateMonitor.EVENT_SCREEN_STATE_CHANGED, screenState, 0).sendToTarget();
         mDSM.obtainMessage(
                 DeviceStateMonitor.EVENT_CHARGING_STATE_CHANGED, chargingState, 0).sendToTarget();
         mDSM.obtainMessage(
                 DeviceStateMonitor.EVENT_WIFI_CONNECTION_CHANGED, wifiState, 0).sendToTarget();
-        processAllMessages();
+        mDSM.post(() -> setReady(true));
+        waitUntilReady();
     }
 
     @Test
     @MediumTest
-    public void testWifi() {
+    public void testWifi() throws Exception  {
         // screen off
         sendStates(0, 0, 0);
         assertEquals(

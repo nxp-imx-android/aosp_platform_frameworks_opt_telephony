@@ -41,8 +41,10 @@ import android.os.Build;
 import android.os.SystemClock;
 import android.os.SystemProperties;
 import android.provider.Telephony.Sms.Intents;
+import android.telephony.AccessNetworkConstants;
 import android.telephony.CallQuality;
 import android.telephony.DisconnectCause;
+import android.telephony.NetworkRegistrationInfo;
 import android.telephony.Rlog;
 import android.telephony.ServiceState;
 import android.telephony.SmsManager;
@@ -72,7 +74,6 @@ import com.android.internal.telephony.PhoneConstants;
 import com.android.internal.telephony.RIL;
 import com.android.internal.telephony.RILConstants;
 import com.android.internal.telephony.SmsResponse;
-import com.android.internal.telephony.util.TelephonyUtils;
 import com.android.internal.telephony.UUSInfo;
 import com.android.internal.telephony.imsphone.ImsPhoneCall;
 import com.android.internal.telephony.nano.TelephonyProto;
@@ -435,6 +436,11 @@ public class TelephonyMetrics {
                         + " Voice RAT " + event.serviceState.voiceRat
                         + " Channel Number " + event.serviceState.channelNumber
                         + ")");
+                for (int i = 0; i < event.serviceState.networkRegistrationInfo.length; i++) {
+                    pw.print("reg info: domain="
+                            + event.serviceState.networkRegistrationInfo[i].domain
+                            + ", rat=" + event.serviceState.networkRegistrationInfo[i].rat);
+                }
             } else {
                 pw.print(telephonyEventToString(event.type));
             }
@@ -909,6 +915,26 @@ public class TelephonyMetrics {
             ssProto.dataOperator.numeric = serviceState.getDataOperatorNumeric();
         }
 
+        // Log PS WWAN only because CS WWAN would be exactly the same as voiceRat, and PS WLAN
+        // would be always IWLAN in the rat field.
+        // Note that we intentionally do not log reg state because it changes too frequently that
+        // will grow the proto size too much.
+        List<TelephonyServiceState.NetworkRegistrationInfo> nriList = new ArrayList<>();
+        NetworkRegistrationInfo nri = serviceState.getNetworkRegistrationInfo(
+                NetworkRegistrationInfo.DOMAIN_PS, AccessNetworkConstants.TRANSPORT_TYPE_WWAN);
+        if (nri != null) {
+            TelephonyServiceState.NetworkRegistrationInfo nriProto =
+                    new TelephonyServiceState.NetworkRegistrationInfo();
+            nriProto.domain = TelephonyServiceState.Domain.DOMAIN_PS;
+            nriProto.transport = TelephonyServiceState.Transport.TRANSPORT_WWAN;
+            nriProto.rat = ServiceState.networkTypeToRilRadioTechnology(
+                    nri.getAccessNetworkTechnology());
+            nriList.add(nriProto);
+            ssProto.networkRegistrationInfo =
+                    new TelephonyServiceState.NetworkRegistrationInfo[nriList.size()];
+            nriList.toArray(ssProto.networkRegistrationInfo);
+        }
+
         ssProto.voiceRat = serviceState.getRilVoiceRadioTechnology();
         ssProto.dataRat = serviceState.getRilDataRadioTechnology();
         ssProto.channelNumber = serviceState.getChannelNumber();
@@ -1136,6 +1162,17 @@ public class TelephonyMetrics {
     public void writeDataStallEvent(int phoneId, int recoveryAction) {
         addTelephonyEvent(new TelephonyEventBuilder(phoneId)
                 .setDataStallRecoveryAction(recoveryAction).build());
+    }
+
+    /**
+     * Write SignalStrength event
+     *
+     * @param phoneId Phone id
+     * @param signalStrength Signal strength at the time of data stall recovery
+     */
+    public void writeSignalStrengthEvent(int phoneId, int signalStrength) {
+        addTelephonyEvent(new TelephonyEventBuilder(phoneId)
+                .setSignalStrength(signalStrength).build());
     }
 
     /**
@@ -1741,7 +1778,7 @@ public class TelephonyMetrics {
             Rlog.e(TAG, "SMS session is missing");
         } else {
 
-            int errorCode = SmsResponse.NO_ERROR_CODE;
+            int errorCode = 0;
             if (response != null) {
                 errorCode = response.mErrorCode;
             }
@@ -2470,14 +2507,14 @@ public class TelephonyMetrics {
         }
 
         // fill in complete matching information from the SIM.
-        carrierIdMatchingResult.mccmnc = TelephonyUtils.emptyIfNull(simInfo.mccMnc);
-        carrierIdMatchingResult.spn = TelephonyUtils.emptyIfNull(simInfo.spn);
-        carrierIdMatchingResult.pnn = TelephonyUtils.emptyIfNull(simInfo.plmn);
-        carrierIdMatchingResult.gid1 = TelephonyUtils.emptyIfNull(simInfo.gid1);
-        carrierIdMatchingResult.gid2 = TelephonyUtils.emptyIfNull(simInfo.gid2);
-        carrierIdMatchingResult.imsiPrefix = TelephonyUtils.emptyIfNull(simInfo.imsiPrefixPattern);
-        carrierIdMatchingResult.iccidPrefix = TelephonyUtils.emptyIfNull(simInfo.iccidPrefix);
-        carrierIdMatchingResult.preferApn = TelephonyUtils.emptyIfNull(simInfo.apn);
+        carrierIdMatchingResult.mccmnc = TextUtils.emptyIfNull(simInfo.mccMnc);
+        carrierIdMatchingResult.spn = TextUtils.emptyIfNull(simInfo.spn);
+        carrierIdMatchingResult.pnn = TextUtils.emptyIfNull(simInfo.plmn);
+        carrierIdMatchingResult.gid1 = TextUtils.emptyIfNull(simInfo.gid1);
+        carrierIdMatchingResult.gid2 = TextUtils.emptyIfNull(simInfo.gid2);
+        carrierIdMatchingResult.imsiPrefix = TextUtils.emptyIfNull(simInfo.imsiPrefixPattern);
+        carrierIdMatchingResult.iccidPrefix = TextUtils.emptyIfNull(simInfo.iccidPrefix);
+        carrierIdMatchingResult.preferApn = TextUtils.emptyIfNull(simInfo.apn);
         if (simInfo.privilegeAccessRule != null) {
             carrierIdMatchingResult.privilegeAccessRule =
                     simInfo.privilegeAccessRule.stream().toArray(String[]::new);

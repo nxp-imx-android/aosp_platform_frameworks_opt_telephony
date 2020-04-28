@@ -26,7 +26,7 @@ import java.util.Calendar;
 import java.util.TimeZone;
 
 /**
- * Represents NITZ data. Various static methods are provided to help with parsing and interpretation
+ * Represents NITZ data. Various static methods are provided to help with parsing and intepretation
  * of NITZ data.
  *
  * {@hide}
@@ -153,11 +153,7 @@ public final class NitzData {
 
     /**
      * Returns the total offset to apply to the {@link #getCurrentTimeInMillis()} to arrive at a
-     * local time. NITZ is limited in only being able to express total offsets in multiples of 15
-     * minutes.
-     *
-     * <p>Note that some time zones change offset during the year for reasons other than "daylight
-     * savings", e.g. for Ramadan. This is not well handled by most date / time APIs.
+     * local time.
      */
     public int getLocalOffsetMillis() {
         return mZoneOffset;
@@ -166,25 +162,7 @@ public final class NitzData {
     /**
      * Returns the offset (already included in {@link #getLocalOffsetMillis()}) associated with
      * Daylight Savings Time (DST). This field is optional: {@code null} means the DST offset is
-     * unknown. NITZ is limited in only being able to express DST offsets in positive multiples of
-     * one or two hours.
-     *
-     * <p>Callers should remember that standard time / DST is a matter of convention: it has
-     * historically been assumed by NITZ and many date/time APIs that DST happens in the summer and
-     * the "raw" offset will increase during this time, usually by one hour. However, the tzdb
-     * maintainers have moved to different conventions on a country-by-country basis so that some
-     * summer times are considered the "standard" time (i.e. in this model winter time is the "DST"
-     * and a negative adjustment, usually of (negative) one hour.
-     *
-     * <p>There is nothing that says NITZ and tzdb need to treat DST conventions the same.
-     *
-     * <p>At the time of writing Android date/time APIs are sticking with the historic tzdb
-     * convention that DST is used in summer time and is <em>always</em> a positive offset but this
-     * could change in future. If Android or carriers change the conventions used then it might make
-     * NITZ comparisons with tzdb information more error-prone.
-     *
-     * <p>See also {@link #getLocalOffsetMillis()} for other reasons besides DST that a local offset
-     * may change.
+     * unknown.
      */
     public Integer getDstAdjustmentMillis() {
         return mDstOffset;

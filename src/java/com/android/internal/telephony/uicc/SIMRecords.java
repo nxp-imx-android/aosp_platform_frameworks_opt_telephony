@@ -28,7 +28,6 @@ import android.telephony.Rlog;
 import android.telephony.SmsMessage;
 import android.telephony.SubscriptionInfo;
 import android.text.TextUtils;
-import android.util.Pair;
 
 import com.android.internal.telephony.CommandsInterface;
 import com.android.internal.telephony.MccTable;
@@ -136,10 +135,6 @@ public class SIMRecords extends IccRecords {
     private static final int CFIS_ADN_CAPABILITY_ID_OFFSET = 14;
     private static final int CFIS_ADN_EXTENSION_ID_OFFSET = 15;
 
-    // 3GPP specification constants
-    // Spec reference TS 31.102 section 4.2.16
-    private static final int FPLMN_BYTE_SIZE = 3;
-
     // ***** Event Constants
     private static final int SIM_RECORD_EVENT_BASE = 0x00;
     private static final int EVENT_GET_IMSI_DONE = 3 + SIM_RECORD_EVENT_BASE;
@@ -174,8 +169,13 @@ public class SIMRecords extends IccRecords {
     private static final int EVENT_GET_HPLMN_W_ACT_DONE = 39 + SIM_RECORD_EVENT_BASE;
     private static final int EVENT_GET_EHPLMN_DONE = 40 + SIM_RECORD_EVENT_BASE;
     private static final int EVENT_GET_FPLMN_DONE = 41 + SIM_RECORD_EVENT_BASE;
-    private static final int EVENT_GET_FPLMN_SIZE_DONE = 42 + SIM_RECORD_EVENT_BASE;
-    private static final int EVENT_SET_FPLMN_DONE = 43 + SIM_RECORD_EVENT_BASE;
+
+    // TODO: Possibly move these to IccRecords.java
+    private static final int SYSTEM_EVENT_BASE = 0x100;
+    private static final int EVENT_APP_LOCKED = 2 + SYSTEM_EVENT_BASE;
+    private static final int EVENT_APP_NETWORK_LOCKED = 3 + SYSTEM_EVENT_BASE;
+
+
     // ***** Constructor
 
     public SIMRecords(UiccCardApplication app, Context c, CommandsInterface ci) {
@@ -195,6 +195,9 @@ public class SIMRecords extends IccRecords {
 
         // Start off by setting empty state
         resetRecords();
+        mParentApp.registerForReady(this, EVENT_APP_READY, null);
+        mParentApp.registerForLocked(this, EVENT_APP_LOCKED, null);
+        mParentApp.registerForNetworkLocked(this, EVENT_APP_NETWORK_LOCKED, null);
         if (DBG) log("SIMRecords X ctor this=" + this);
     }
 
@@ -203,6 +206,9 @@ public class SIMRecords extends IccRecords {
         if (DBG) log("Disposing SIMRecords this=" + this);
         //Unregister for all events
         mCi.unSetOnSmsOnSim(this);
+        mParentApp.unregisterForReady(this);
+        mParentApp.unregisterForLocked(this);
+        mParentApp.unregisterForNetworkLocked(this);
         resetRecords();
         super.dispose();
     }
@@ -621,6 +627,15 @@ public class SIMRecords extends IccRecords {
 
         try {
             switch (msg.what) {
+                case EVENT_APP_READY:
+                    onReady();
+                    break;
+
+                case EVENT_APP_LOCKED:
+                case EVENT_APP_NETWORK_LOCKED:
+                    onLocked(msg.what);
+                    break;
+
                 /* IO events */
                 case EVENT_GET_IMSI_DONE:
                     isRecordLoadResponse = true;
@@ -1193,80 +1208,22 @@ public class SIMRecords extends IccRecords {
                     data = (byte[]) ar.result;
                     if (ar.exception != null || data == null) {
                         loge("Failed getting Forbidden PLMNs: " + ar.exception);
+                        break;
                     } else {
                         mFplmns = parseBcdPlmnList(data, "Forbidden");
                     }
                     if (msg.arg1 == HANDLER_ACTION_SEND_RESPONSE) {
                         if (VDBG) logv("getForbiddenPlmns(): send async response");
                         isRecordLoadResponse = false;
-                        int key = msg.arg2;
-                        Message response = retrievePendingTransaction(key).first;
+                        Message response = retrievePendingResponseMessage(msg.arg2);
                         if (response != null) {
-                            if (ar.exception == null && data != null && mFplmns != null) {
-                                AsyncResult.forMessage(response, Arrays.copyOf(mFplmns,
-                                        mFplmns.length), null);
-                            } else {
-                                AsyncResult.forMessage(response, null, ar.exception);
-                            }
+                            AsyncResult.forMessage(
+                                    response, Arrays.copyOf(mFplmns, mFplmns.length), null);
                             response.sendToTarget();
                         } else {
                             loge("Failed to retrieve a response message for FPLMN");
                             break;
                         }
-                    }
-                    break;
-
-                case EVENT_GET_FPLMN_SIZE_DONE:
-                    ar = (AsyncResult) msg.obj;
-                    if (ar.exception != null) {
-                        Message response = (Message) ar.userObj;
-                        AsyncResult.forMessage(response).exception = ar.exception;
-                        response.sendToTarget();
-                        break;
-                    }
-                    int key = msg.arg2;
-                    Pair<Message, Object> transaction = retrievePendingTransaction(key);
-                    Message response = transaction.first;
-                    List<String> fplmns = (List<String>) transaction.second;
-                    int dataLength = (int) ar.result;
-                    if (dataLength < 0 || dataLength % FPLMN_BYTE_SIZE != 0) {
-                        loge("Failed to retrieve a correct fplmn size: " + dataLength);
-                        AsyncResult.forMessage(response, -1, null);
-                        response.sendToTarget();
-                        break;
-                    }
-
-                    int maxWritebaleFplmns = dataLength / FPLMN_BYTE_SIZE;
-                    List<String> fplmnsToWrite;
-                    if (fplmns.size() <= maxWritebaleFplmns) {
-                        fplmnsToWrite = fplmns;
-                    } else {
-                        fplmnsToWrite = fplmns.subList(0, maxWritebaleFplmns);
-                    }
-                    key = storePendingTransaction(response, fplmnsToWrite);
-                    byte[] encodededFplmns = IccUtils.encodeFplmns(fplmns, dataLength);
-                    mFh.updateEFTransparent(
-                            EF_FPLMN,
-                            encodededFplmns,
-                            obtainMessage(
-                                    EVENT_SET_FPLMN_DONE,
-                                    msg.arg1,
-                                    key));
-                    break;
-
-                case EVENT_SET_FPLMN_DONE:
-                    ar = (AsyncResult) msg.obj;
-                    if (ar.exception != null) {
-                        loge("Failed setting Forbidden PLMNs: " + ar.exception);
-                    } else {
-                        transaction = retrievePendingTransaction(msg.arg2);
-                        response = transaction.first;
-                        mFplmns = ((List<String>) transaction.second).toArray(new String[0]);
-                        if (msg.arg1 == HANDLER_ACTION_SEND_RESPONSE) {
-                            AsyncResult.forMessage(response, mFplmns.length, null);
-                            response.sendToTarget();
-                        }
-                        log("Successfully setted fplmns " + ar.result);
                     }
                     break;
 
@@ -1521,34 +1478,20 @@ public class SIMRecords extends IccRecords {
      * in the result field of an AsyncResult in the response.obj.
      */
     public void getForbiddenPlmns(Message response) {
-        int key = storePendingTransaction(response);
+        int key = storePendingResponseMessage(response);
         mFh.loadEFTransparent(EF_FPLMN, obtainMessage(
                     EVENT_GET_FPLMN_DONE, HANDLER_ACTION_SEND_RESPONSE, key));
     }
-
-    /**
-     * Set the forbidden PLMNs on the sim
-     *
-     * @param response Response to be send back.
-     * @param fplmns List of fplmns to be written to SIM.
-     */
-    public void setForbiddenPlmns(Message response, List<String> fplmns) {
-        int key = storePendingTransaction(response, fplmns);
-        mFh.getEFTransparentRecordSize(
-                EF_FPLMN,
-                obtainMessage(EVENT_GET_FPLMN_SIZE_DONE, HANDLER_ACTION_SEND_RESPONSE, key));
-    }
-
 
     @Override
     public void onReady() {
         fetchSimRecords();
     }
 
-    @Override
-    protected void onLocked() {
+    private void onLocked(int msg) {
         if (DBG) log("only fetch EF_LI, EF_PL and EF_ICCID in locked state");
-        super.onLocked();
+        mLockedRecordsReqReason = msg == EVENT_APP_LOCKED ? LOCKED_RECORDS_REQ_REASON_LOCKED :
+                LOCKED_RECORDS_REQ_REASON_NETWORK_LOCKED;
 
         loadEfLiAndEfPl();
 
@@ -1690,8 +1633,6 @@ public class SIMRecords extends IccRecords {
     /**
      * States of Get SPN Finite State Machine which only used by getSpnFsm()
      */
-    @UnsupportedAppUsage(implicitMember =
-            "values()[Lcom/android/internal/telephony/uicc/SIMRecords$GetSpnFsmState;")
     private enum GetSpnFsmState {
         IDLE,               // No initialized
         @UnsupportedAppUsage
@@ -1886,7 +1827,7 @@ public class SIMRecords extends IccRecords {
                 tmpSpdi.add(plmnCode);
             }
         }
-        mSpdi = tmpSpdi.toArray(new String[tmpSpdi.size()]);
+        mSpdi = (String[]) tmpSpdi.toArray();
     }
 
     /**

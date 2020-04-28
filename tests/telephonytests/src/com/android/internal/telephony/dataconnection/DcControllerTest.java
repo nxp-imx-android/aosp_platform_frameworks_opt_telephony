@@ -16,6 +16,7 @@
 
 package com.android.internal.telephony.dataconnection;
 
+import static com.android.internal.telephony.TelephonyTestUtils.waitForMs;
 import static com.android.internal.telephony.dataconnection.DcTrackerTest.FAKE_ADDRESS;
 import static com.android.internal.telephony.dataconnection.DcTrackerTest.FAKE_DNS;
 import static com.android.internal.telephony.dataconnection.DcTrackerTest.FAKE_GATEWAY;
@@ -35,12 +36,10 @@ import android.net.LinkProperties;
 import android.net.NetworkUtils;
 import android.os.AsyncResult;
 import android.os.Handler;
-import android.os.Looper;
+import android.os.HandlerThread;
 import android.telephony.data.ApnSetting;
 import android.telephony.data.DataCallResponse;
 import android.test.suitebuilder.annotation.SmallTest;
-import android.testing.AndroidTestingRunner;
-import android.testing.TestableLooper;
 
 import com.android.internal.telephony.DctConstants;
 import com.android.internal.telephony.TelephonyTest;
@@ -51,7 +50,6 @@ import com.android.internal.util.StateMachine;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
-import org.junit.runner.RunWith;
 import org.mockito.Mock;
 
 import java.lang.reflect.Method;
@@ -59,8 +57,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
-@RunWith(AndroidTestingRunner.class)
-@TestableLooper.RunWithLooper
 public class DcControllerTest extends TelephonyTest {
 
     private static final int DATA_CONNECTION_ACTIVE_PH_LINK_DORMANT = 1;
@@ -76,6 +72,24 @@ public class DcControllerTest extends TelephonyTest {
     UpdateLinkPropertyResult mResult;
 
     private DcController mDcc;
+    private DcControllerTestHandler mDcControllerTestHandler;
+
+    private class DcControllerTestHandler extends HandlerThread {
+
+        private DcControllerTestHandler(String name) {
+            super(name);
+        }
+
+        private Handler mHandler;
+
+        @Override
+        public void onLooperPrepared() {
+            mHandler = new Handler();
+            mDcc = DcController.makeDcc(mPhone, mDcTracker, mDataServiceManager, mHandler, "");
+            mDcc.start();
+            setReady(true);
+        }
+    }
 
     private IState getCurrentState() {
         try {
@@ -100,14 +114,14 @@ public class DcControllerTest extends TelephonyTest {
         mResult = new UpdateLinkPropertyResult(lp);
         doReturn(mResult).when(mDc).updateLinkProperty(any(DataCallResponse.class));
 
-        mDcc = DcController.makeDcc(mPhone, mDcTracker, mDataServiceManager,
-                new Handler(Looper.myLooper()), "");
-        mDcc.start();
-        processAllMessages();
+        mDcControllerTestHandler = new DcControllerTestHandler(TAG);
+        mDcControllerTestHandler.start();
+        waitUntilReady();
     }
 
     @After
     public void tearDown() throws Exception {
+        mDcControllerTestHandler.quit();
         super.tearDown();
     }
 
@@ -130,7 +144,7 @@ public class DcControllerTest extends TelephonyTest {
         mDcc.addActiveDcByCid(mDc);
 
         mDcc.sendMessage(EVENT_DATA_STATE_CHANGED, new AsyncResult(null, l, null));
-        processAllMessages();
+        waitForMs(100);
 
         verify(mDcTracker, times(1)).sendStopNetStatPoll(eq(DctConstants.Activity.DORMANT));
     }

@@ -61,7 +61,6 @@ import android.os.IInterface;
 import android.os.PersistableBundle;
 import android.os.UserHandle;
 import android.os.UserManager;
-import android.os.telephony.TelephonyRegistryManager;
 import android.preference.PreferenceManager;
 import android.provider.Settings;
 import android.provider.Telephony.ServiceStateTable;
@@ -248,8 +247,6 @@ public class ContextFixture implements TestFixture<Context> {
                     return mTelecomManager;
                 case Context.DOWNLOAD_SERVICE:
                     return mDownloadManager;
-                case Context.TELEPHONY_REGISTRY_SERVICE:
-                    return mTelephonyRegistryManager;
                 case Context.DISPLAY_SERVICE:
                 case Context.POWER_SERVICE:
                     // PowerManager and DisplayManager are final classes so cannot be mocked,
@@ -268,8 +265,6 @@ public class ContextFixture implements TestFixture<Context> {
                 return Context.APP_OPS_SERVICE;
             } else if (serviceClass == TelecomManager.class) {
                 return Context.TELECOM_SERVICE;
-            } else if (serviceClass == UserManager.class) {
-                return Context.USER_SERVICE;
             }
             return super.getSystemServiceName(serviceClass);
         }
@@ -572,8 +567,6 @@ public class ContextFixture implements TestFixture<Context> {
     private final EuiccManager mEuiccManager = mock(EuiccManager.class);
     private final TelecomManager mTelecomManager = mock(TelecomManager.class);
     private final PackageInfo mPackageInfo = mock(PackageInfo.class);
-    private final TelephonyRegistryManager mTelephonyRegistryManager =
-        mock(TelephonyRegistryManager.class);
 
     private final ContentProvider mContentProvider = spy(new FakeContentProvider());
 
@@ -602,7 +595,7 @@ public class ContextFixture implements TestFixture<Context> {
                         (Intent) invocation.getArguments()[0],
                         (Integer) invocation.getArguments()[1]);
             }
-        }).when(mPackageManager).queryIntentServicesAsUser((Intent) any(), anyInt(), any());
+        }).when(mPackageManager).queryIntentServicesAsUser((Intent) any(), anyInt(), anyInt());
 
         try {
             doReturn(mPackageInfo).when(mPackageManager).getPackageInfoAsUser(any(), anyInt(),

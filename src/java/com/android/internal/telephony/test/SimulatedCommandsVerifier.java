@@ -32,8 +32,6 @@ import com.android.internal.telephony.UUSInfo;
 import com.android.internal.telephony.cdma.CdmaSmsBroadcastConfigInfo;
 import com.android.internal.telephony.gsm.SmsBroadcastConfigInfo;
 
-import dalvik.annotation.compat.UnsupportedAppUsage;
-
 public class SimulatedCommandsVerifier implements CommandsInterface {
     private static SimulatedCommandsVerifier sInstance;
 
@@ -41,7 +39,6 @@ public class SimulatedCommandsVerifier implements CommandsInterface {
 
     }
 
-    @UnsupportedAppUsage
     public static SimulatedCommandsVerifier getInstance() {
         if (sInstance == null) {
             sInstance = new SimulatedCommandsVerifier();
@@ -868,7 +865,7 @@ public class SimulatedCommandsVerifier implements CommandsInterface {
     }
 
     @Override
-    public void writeSmsToRuim(int status, byte[] pdu, Message response) {
+    public void writeSmsToRuim(int status, String pdu, Message response) {
 
     }
 
@@ -929,7 +926,6 @@ public class SimulatedCommandsVerifier implements CommandsInterface {
 
     }
 
-    @UnsupportedAppUsage
     @Override
     public void setCallForward(int action, int cfReason, int serviceClass, String number,
                                int timeSeconds, Message response) {

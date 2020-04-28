@@ -30,8 +30,8 @@ import android.preference.PreferenceManager;
 import android.provider.Settings;
 import android.telephony.TelephonyManager;
 import android.telephony.euicc.EuiccManager;
-import android.testing.AndroidTestingRunner;
-import android.testing.TestableLooper;
+
+import androidx.test.runner.AndroidJUnit4;
 
 import com.android.internal.telephony.TelephonyTest;
 import com.android.internal.telephony.uicc.IccCardStatus.CardState;
@@ -48,9 +48,9 @@ import org.mockito.invocation.InvocationOnMock;
 import org.mockito.stubbing.Answer;
 
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
-@RunWith(AndroidTestingRunner.class)
-@TestableLooper.RunWithLooper
+@RunWith(AndroidJUnit4.class)
 public class EuiccCardControllerTest extends TelephonyTest {
     private static final String KEY_LAST_BOOT_COUNT = "last_boot_count";
 
@@ -203,12 +203,14 @@ public class EuiccCardControllerTest extends TelephonyTest {
         mSp.edit().remove(KEY_LAST_BOOT_COUNT);
         Settings.Global.putInt(mContext.getContentResolver(), Settings.Global.BOOT_COUNT, 0);
         when(mUiccController.getUiccSlots()).thenReturn(new UiccSlot[] {mActivatedEsimSlot});
+
         mEuiccCardController =
                 new EuiccCardController(mContext, null, mEuiccController, mUiccController);
-
         mContext.sendBroadcast(new Intent(TelephonyManager.ACTION_SIM_SLOT_STATUS_CHANGED));
-        processAllMessages();
-        assertTrue(mOtaStarted);
+        try {
+            mOtaLatch.await(5000, TimeUnit.MILLISECONDS);
+            assertTrue(mOtaStarted);
+        } catch (InterruptedException ignore) { }
     }
 
     @Test
@@ -217,12 +219,14 @@ public class EuiccCardControllerTest extends TelephonyTest {
         mSp.edit().remove(KEY_LAST_BOOT_COUNT);
         Settings.Global.putInt(mContext.getContentResolver(), Settings.Global.BOOT_COUNT, 0);
         when(mUiccController.getUiccSlots()).thenReturn(new UiccSlot[] {mNotPresentEsimSlot});
+
         mEuiccCardController =
             new EuiccCardController(mContext, null, mEuiccController, mUiccController);
-
         mContext.sendBroadcast(new Intent(TelephonyManager.ACTION_SIM_SLOT_STATUS_CHANGED));
-        processAllMessages();
-        assertFalse(mOtaStarted);
+        try {
+            mOtaLatch.await(5000, TimeUnit.MILLISECONDS);
+            assertFalse(mOtaStarted);
+        } catch (InterruptedException ignore) { }
     }
 
     @Test
@@ -235,7 +239,6 @@ public class EuiccCardControllerTest extends TelephonyTest {
                 new EuiccCardController(mContext, null, mEuiccController, mUiccController);
 
         mContext.sendBroadcast(new Intent(TelephonyManager.ACTION_SIM_SLOT_STATUS_CHANGED));
-        processAllMessages();
         assertFalse(mOtaStarted);
     }
 
@@ -246,11 +249,10 @@ public class EuiccCardControllerTest extends TelephonyTest {
         Settings.Global.putInt(mContext.getContentResolver(), Settings.Global.BOOT_COUNT, 0);
         when(mUiccController.getUiccSlots())
                 .thenReturn(new UiccSlot[] {mActivatedRemovableSlot, mInactivatedEsimSlot});
+
         mEuiccCardController =
                 new EuiccCardController(mContext, null, mEuiccController, mUiccController);
-
         mContext.sendBroadcast(new Intent(TelephonyManager.ACTION_SIM_SLOT_STATUS_CHANGED));
-        processAllMessages();
         assertFalse(mOtaStarted);
     }
 }

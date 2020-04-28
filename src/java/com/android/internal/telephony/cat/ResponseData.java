@@ -16,25 +16,20 @@
 
 package com.android.internal.telephony.cat;
 
-import android.annotation.UnsupportedAppUsage;
+import com.android.internal.telephony.EncodeException;
+import com.android.internal.telephony.GsmAlphabet;
+import java.util.Calendar;
+import java.util.TimeZone;
 import android.os.SystemProperties;
 import android.text.TextUtils;
 
-import com.android.internal.telephony.EncodeException;
-import com.android.internal.telephony.GsmAlphabet;
 import com.android.internal.telephony.cat.AppInterface.CommandType;
 
+import android.annotation.UnsupportedAppUsage;
 import java.io.ByteArrayOutputStream;
 import java.io.UnsupportedEncodingException;
-import java.util.Calendar;
-import java.util.TimeZone;
 
 abstract class ResponseData {
-
-    @UnsupportedAppUsage
-    ResponseData() {
-    }
-
     /**
      * Format the data appropriate for TERMINAL RESPONSE and write it into
      * the ByteArrayOutputStream object.
@@ -263,7 +258,7 @@ class DTTZResponseData extends ResponseData {
             data[7] = (byte) 0xFF;    // set FF in terminal response
         } else {
             TimeZone zone = TimeZone.getTimeZone(tz);
-            int zoneOffset = zone.getOffset(mCalendar.getTimeInMillis());
+            int zoneOffset = zone.getRawOffset() + zone.getDSTSavings();
             data[7] = getTZOffSetByte(zoneOffset);
         }
 

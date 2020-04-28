@@ -29,7 +29,6 @@ import android.telephony.Rlog;
 import android.telephony.SubscriptionInfo;
 import android.telephony.TelephonyManager;
 import android.text.TextUtils;
-import android.util.Pair;
 
 import com.android.internal.telephony.CommandsInterface;
 import com.android.internal.telephony.MccTable;
@@ -182,7 +181,8 @@ public abstract class IccRecords extends Handler implements IccConstants {
     protected static final int HANDLER_ACTION_NONE = HANDLER_ACTION_BASE + 0;
     protected static final int HANDLER_ACTION_SEND_RESPONSE = HANDLER_ACTION_BASE + 1;
     protected static AtomicInteger sNextRequestId = new AtomicInteger(1);
-    protected final HashMap<Integer, Pair<Message, Object>> mPendingTransactions = new HashMap<>();
+    protected final HashMap<Integer, Message> mPendingResponses = new HashMap<>();
+
     // ***** Constants
 
     // Markers for mncLength
@@ -214,12 +214,8 @@ public abstract class IccRecords extends Handler implements IccConstants {
 
     public static final int EVENT_GET_ICC_RECORD_DONE = 100;
     public static final int EVENT_REFRESH = 31; // ICC refresh occurred
+    protected static final int EVENT_APP_READY = 1;
     private static final int EVENT_AKA_AUTHENTICATE_DONE          = 90;
-
-    protected static final int SYSTEM_EVENT_BASE = 0x100;
-    protected static final int EVENT_APP_READY = 1 + SYSTEM_EVENT_BASE;
-    protected static final int EVENT_APP_LOCKED = 2 + SYSTEM_EVENT_BASE;
-    protected static final int EVENT_APP_NETWORK_LOCKED = 3 + SYSTEM_EVENT_BASE;
 
     public static final int CALL_FORWARDING_STATUS_DISABLED = 0;
     public static final int CALL_FORWARDING_STATUS_ENABLED = 1;
@@ -287,10 +283,6 @@ public abstract class IccRecords extends Handler implements IccConstants {
 
         mCarrierTestOverride = new CarrierTestOverride();
         mCi.registerForIccRefresh(this, EVENT_REFRESH, null);
-
-        mParentApp.registerForReady(this, EVENT_APP_READY, null);
-        mParentApp.registerForLocked(this, EVENT_APP_LOCKED, null);
-        mParentApp.registerForNetworkLocked(this, EVENT_APP_NETWORK_LOCKED, null);
     }
 
     // Override IccRecords for testing
@@ -316,10 +308,6 @@ public abstract class IccRecords extends Handler implements IccConstants {
         }
 
         mCi.unregisterForIccRefresh(this);
-        mParentApp.unregisterForReady(this);
-        mParentApp.unregisterForLocked(this);
-        mParentApp.unregisterForNetworkLocked(this);
-
         mParentApp = null;
         mFh = null;
         mCi = null;
@@ -330,13 +318,7 @@ public abstract class IccRecords extends Handler implements IccConstants {
         mLoaded.set(false);
     }
 
-    protected abstract void onReady();
-
-    protected void onLocked() {
-        // The LOADED state should not be indicated while the lock is effective.
-        mRecordsRequested = false;
-        mLoaded.set(false);
-    }
+    public abstract void onReady();
 
     //***** Public Methods
     public AdnRecordCache getAdnCache() {
@@ -344,42 +326,24 @@ public abstract class IccRecords extends Handler implements IccConstants {
     }
 
     /**
-     * Adds a message to the pending requests list by generating a unique (integer)
-     * hash key and returning it. The message should never be null.
-     *
-     * @param msg Message of the transaction to be stored
-     * @return the unique (integer) hash key to retrieve the pending transaction
+     * Adds a message to the pending requests list by generating a unique
+     * (integer) hash key and returning it. The message should never be null.
      */
-    public int storePendingTransaction(Message msg) {
-        return storePendingTransaction(msg, null);
-    }
-
-    /**
-     * Adds a message and obj pair to the pending requests list by generating a unique (integer)
-     * hash key and returning it. The message should never be null.
-     *
-     * @param msg Message of the transaction to be stored
-     * @param obj Object of the transaction to be stored
-     * @return the unique (integer) hash key to retrieve the pending transaction
-     */
-    public int storePendingTransaction(Message msg, Object obj) {
+    public int storePendingResponseMessage(Message msg) {
         int key = sNextRequestId.getAndIncrement();
-        Pair<Message, Object> pair = new Pair<Message, Object>(msg, obj);
-        synchronized (mPendingTransactions) {
-            mPendingTransactions.put(key, pair);
+        synchronized (mPendingResponses) {
+            mPendingResponses.put(key, msg);
         }
         return key;
     }
 
     /**
-     * Returns the pending transaction and free it from memory, if any or null
-     *
-     * @param key key of the entry to retrieve
-     * @return The pending transaction.
+     * Returns the pending request, if any or null
      */
-    public Pair<Message, Object> retrievePendingTransaction(Integer key) {
-        synchronized (mPendingTransactions) {
-            return mPendingTransactions.remove(key);
+    public Message retrievePendingResponseMessage(Integer key) {
+        Message m;
+        synchronized (mPendingResponses) {
+            return mPendingResponses.remove(key);
         }
     }
 
@@ -391,13 +355,11 @@ public abstract class IccRecords extends Handler implements IccConstants {
      */
     @UnsupportedAppUsage
     public String getIccId() {
-        if (mCarrierTestOverride.isInTestMode()) {
-            String fakeIccId = mCarrierTestOverride.getFakeIccid();
-            if (fakeIccId != null) {
-                return fakeIccId;
-            }
+        if (mCarrierTestOverride.isInTestMode() && mCarrierTestOverride.getFakeIccid() != null) {
+            return mCarrierTestOverride.getFakeIccid();
+        } else {
+            return mIccId;
         }
-        return mIccId;
     }
 
     /**
@@ -566,13 +528,11 @@ public abstract class IccRecords extends Handler implements IccConstants {
      */
     @UnsupportedAppUsage
     public String getIMSI() {
-        if (mCarrierTestOverride.isInTestMode()) {
-            String fakeImsi = mCarrierTestOverride.getFakeIMSI();
-            if (fakeImsi != null) {
-                return fakeImsi;
-            }
+        if (mCarrierTestOverride.isInTestMode() && mCarrierTestOverride.getFakeIMSI() != null) {
+            return mCarrierTestOverride.getFakeIMSI();
+        } else {
+            return mImsi;
         }
-        return mImsi;
     }
 
     /**
@@ -672,13 +632,11 @@ public abstract class IccRecords extends Handler implements IccConstants {
      */
     @UnsupportedAppUsage
     public String getGid1() {
-        if (mCarrierTestOverride.isInTestMode()) {
-            String fakeGid1 = mCarrierTestOverride.getFakeGid1();
-            if (fakeGid1 != null) {
-                return fakeGid1;
-            }
+        if (mCarrierTestOverride.isInTestMode() && mCarrierTestOverride.getFakeGid1() != null) {
+            return mCarrierTestOverride.getFakeGid1();
+        } else {
+            return mGid1;
         }
-        return mGid1;
     }
 
     /**
@@ -686,13 +644,11 @@ public abstract class IccRecords extends Handler implements IccConstants {
      * @return null if SIM is not yet ready
      */
     public String getGid2() {
-        if (mCarrierTestOverride.isInTestMode()) {
-            String fakeGid2 = mCarrierTestOverride.getFakeGid2();
-            if (fakeGid2 != null) {
-                return fakeGid2;
-            }
+        if (mCarrierTestOverride.isInTestMode() && mCarrierTestOverride.getFakeGid2() != null) {
+            return mCarrierTestOverride.getFakeGid2();
+        } else {
+            return mGid2;
         }
-        return mGid2;
     }
 
     /**
@@ -700,13 +656,12 @@ public abstract class IccRecords extends Handler implements IccConstants {
      * @return null if SIM is not yet ready
      */
     public String getPnnHomeName() {
-        if (mCarrierTestOverride.isInTestMode()) {
-            String fakePnnHomeName = mCarrierTestOverride.getFakePnnHomeName();
-            if (fakePnnHomeName != null) {
-                return fakePnnHomeName;
-            }
+        if (mCarrierTestOverride.isInTestMode()
+                && mCarrierTestOverride.getFakePnnHomeName() != null) {
+            return mCarrierTestOverride.getFakePnnHomeName();
+        } else {
+            return mPnnHomeName;
         }
-        return mPnnHomeName;
     }
 
     @UnsupportedAppUsage
@@ -734,11 +689,8 @@ public abstract class IccRecords extends Handler implements IccConstants {
      */
     @UnsupportedAppUsage
     public String getServiceProviderName() {
-        if (mCarrierTestOverride.isInTestMode()) {
-            String fakeSpn = mCarrierTestOverride.getFakeSpn();
-            if (fakeSpn != null) {
-                return fakeSpn;
-            }
+        if (mCarrierTestOverride.isInTestMode() && mCarrierTestOverride.getFakeSpn() != null) {
+            return mCarrierTestOverride.getFakeSpn();
         }
         return mSpn;
     }
@@ -840,21 +792,6 @@ public abstract class IccRecords extends Handler implements IccConstants {
         AsyncResult ar;
 
         switch (msg.what) {
-            case EVENT_APP_READY:
-                mLockedRecordsReqReason = LOCKED_RECORDS_REQ_REASON_NONE;
-                onReady();
-                break;
-
-            case EVENT_APP_LOCKED:
-                mLockedRecordsReqReason = LOCKED_RECORDS_REQ_REASON_LOCKED;
-                onLocked();
-                break;
-
-            case EVENT_APP_NETWORK_LOCKED:
-                mLockedRecordsReqReason = LOCKED_RECORDS_REQ_REASON_NETWORK_LOCKED;
-                onLocked();
-                break;
-
             case EVENT_GET_ICC_RECORD_DONE:
                 try {
                     ar = (AsyncResult) msg.obj;
@@ -1040,8 +977,6 @@ public abstract class IccRecords extends Handler implements IccConstants {
         if (!ArrayUtils.isEmpty(spdi)) {
             hplmns = ArrayUtils.concatElements(String.class, hplmns, spdi);
         }
-        // If hplmns don't contain hplmn, we need to add hplmn to hplmns
-        hplmns = ArrayUtils.appendElement(String.class, hplmns, hplmn);
         return hplmns;
     }
 

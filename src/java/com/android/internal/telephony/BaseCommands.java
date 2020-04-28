@@ -24,7 +24,6 @@ import android.os.Handler;
 import android.os.Message;
 import android.os.Registrant;
 import android.os.RegistrantList;
-import android.telephony.Annotation.RadioPowerState;
 import android.telephony.TelephonyManager;
 
 /**
@@ -161,15 +160,17 @@ public abstract class BaseCommands implements CommandsInterface {
     //***** CommandsInterface implementation
 
     @Override
-    public @RadioPowerState int getRadioState() {
+    public @TelephonyManager.RadioPowerState int getRadioState() {
         return mState;
     }
 
     @Override
     public void registerForRadioStateChanged(Handler h, int what, Object obj) {
+        Registrant r = new Registrant (h, what, obj);
+
         synchronized (mStateMonitor) {
-            mRadioStateChangedRegistrants.addUnique(h, what, obj);
-            Message.obtain(h, what, new AsyncResult(obj, null, null)).sendToTarget();
+            mRadioStateChangedRegistrants.add(r);
+            r.notifyRegistrant();
         }
     }
 
@@ -181,7 +182,8 @@ public abstract class BaseCommands implements CommandsInterface {
     }
 
     public void registerForImsNetworkStateChanged(Handler h, int what, Object obj) {
-        mImsNetworkStateChangedRegistrants.addUnique(h, what, obj);
+        Registrant r = new Registrant (h, what, obj);
+        mImsNetworkStateChangedRegistrants.add(r);
     }
 
     public void unregisterForImsNetworkStateChanged(Handler h) {
@@ -190,11 +192,13 @@ public abstract class BaseCommands implements CommandsInterface {
 
     @Override
     public void registerForOn(Handler h, int what, Object obj) {
+        Registrant r = new Registrant (h, what, obj);
+
         synchronized (mStateMonitor) {
-            mOnRegistrants.addUnique(h, what, obj);
+            mOnRegistrants.add(r);
 
             if (mState == TelephonyManager.RADIO_POWER_ON) {
-                Message.obtain(h, what, new AsyncResult(obj, null, null)).sendToTarget();
+                r.notifyRegistrant(new AsyncResult(null, null, null));
             }
         }
     }
@@ -208,11 +212,13 @@ public abstract class BaseCommands implements CommandsInterface {
 
     @Override
     public void registerForAvailable(Handler h, int what, Object obj) {
+        Registrant r = new Registrant (h, what, obj);
+
         synchronized (mStateMonitor) {
-            mAvailRegistrants.addUnique(h, what, obj);
+            mAvailRegistrants.add(r);
 
             if (mState != TelephonyManager.RADIO_POWER_UNAVAILABLE) {
-                Message.obtain(h, what, new AsyncResult(obj, null, null)).sendToTarget();
+                r.notifyRegistrant(new AsyncResult(null, null, null));
             }
         }
     }
@@ -226,11 +232,13 @@ public abstract class BaseCommands implements CommandsInterface {
 
     @Override
     public void registerForNotAvailable(Handler h, int what, Object obj) {
+        Registrant r = new Registrant (h, what, obj);
+
         synchronized (mStateMonitor) {
-            mNotAvailRegistrants.addUnique(h, what, obj);
+            mNotAvailRegistrants.add(r);
 
             if (mState == TelephonyManager.RADIO_POWER_UNAVAILABLE) {
-                Message.obtain(h, what, new AsyncResult(obj, null, null)).sendToTarget();
+                r.notifyRegistrant(new AsyncResult(null, null, null));
             }
         }
     }
@@ -244,12 +252,14 @@ public abstract class BaseCommands implements CommandsInterface {
 
     @Override
     public void registerForOffOrNotAvailable(Handler h, int what, Object obj) {
+        Registrant r = new Registrant (h, what, obj);
+
         synchronized (mStateMonitor) {
-            mOffOrNotAvailRegistrants.addUnique(h, what, obj);
+            mOffOrNotAvailRegistrants.add(r);
 
             if (mState == TelephonyManager.RADIO_POWER_OFF
                     || mState == TelephonyManager.RADIO_POWER_UNAVAILABLE) {
-                Message.obtain(h, what, new AsyncResult(obj, null, null)).sendToTarget();
+                r.notifyRegistrant(new AsyncResult(null, null, null));
             }
         }
     }
@@ -262,7 +272,9 @@ public abstract class BaseCommands implements CommandsInterface {
 
     @Override
     public void registerForCallStateChanged(Handler h, int what, Object obj) {
-        mCallStateRegistrants.addUnique(h, what, obj);
+        Registrant r = new Registrant (h, what, obj);
+
+        mCallStateRegistrants.add(r);
     }
 
     @Override
@@ -272,7 +284,9 @@ public abstract class BaseCommands implements CommandsInterface {
 
     @Override
     public void registerForNetworkStateChanged(Handler h, int what, Object obj) {
-        mNetworkStateRegistrants.addUnique(h, what, obj);
+        Registrant r = new Registrant (h, what, obj);
+
+        mNetworkStateRegistrants.add(r);
     }
 
     @Override
@@ -282,7 +296,9 @@ public abstract class BaseCommands implements CommandsInterface {
 
     @Override
     public void registerForDataCallListChanged(Handler h, int what, Object obj) {
-        mDataCallListChangedRegistrants.addUnique(h, what, obj);
+        Registrant r = new Registrant (h, what, obj);
+
+        mDataCallListChangedRegistrants.add(r);
     }
 
     @Override
@@ -292,7 +308,8 @@ public abstract class BaseCommands implements CommandsInterface {
 
     @Override
     public void registerForVoiceRadioTechChanged(Handler h, int what, Object obj) {
-        mVoiceRadioTechChangedRegistrants.addUnique(h, what, obj);
+        Registrant r = new Registrant (h, what, obj);
+        mVoiceRadioTechChangedRegistrants.add(r);
     }
 
     @Override
@@ -302,7 +319,8 @@ public abstract class BaseCommands implements CommandsInterface {
 
     @Override
     public void registerForIccStatusChanged(Handler h, int what, Object obj) {
-        mIccStatusChangedRegistrants.addUnique(h, what, obj);
+        Registrant r = new Registrant (h, what, obj);
+        mIccStatusChangedRegistrants.add(r);
     }
 
     @Override
@@ -312,7 +330,8 @@ public abstract class BaseCommands implements CommandsInterface {
 
     @Override
     public void registerForIccSlotStatusChanged(Handler h, int what, Object obj) {
-        mIccSlotStatusChangedRegistrants.addUnique(h, what, obj);
+        Registrant r = new Registrant(h, what, obj);
+        mIccSlotStatusChangedRegistrants.add(r);
     }
 
     @Override
@@ -504,7 +523,8 @@ public abstract class BaseCommands implements CommandsInterface {
 
     @Override
     public void registerForIccRefresh(Handler h, int what, Object obj) {
-        mIccRefreshRegistrants.addUnique(h, what, obj);
+        Registrant r = new Registrant (h, what, obj);
+        mIccRefreshRegistrants.add(r);
     }
     @Override
     public void setOnIccRefresh(Handler h, int what, Object obj) {
@@ -560,7 +580,8 @@ public abstract class BaseCommands implements CommandsInterface {
 
     @Override
     public void registerForInCallVoicePrivacyOn(Handler h, int what, Object obj) {
-        mVoicePrivacyOnRegistrants.addUnique(h, what, obj);
+        Registrant r = new Registrant (h, what, obj);
+        mVoicePrivacyOnRegistrants.add(r);
     }
 
     @Override
@@ -570,7 +591,8 @@ public abstract class BaseCommands implements CommandsInterface {
 
     @Override
     public void registerForInCallVoicePrivacyOff(Handler h, int what, Object obj) {
-        mVoicePrivacyOffRegistrants.addUnique(h, what, obj);
+        Registrant r = new Registrant (h, what, obj);
+        mVoicePrivacyOffRegistrants.add(r);
     }
 
     @Override
@@ -593,7 +615,8 @@ public abstract class BaseCommands implements CommandsInterface {
 
     @Override
     public void registerForDisplayInfo(Handler h, int what, Object obj) {
-        mDisplayInfoRegistrants.addUnique(h, what, obj);
+        Registrant r = new Registrant (h, what, obj);
+        mDisplayInfoRegistrants.add(r);
     }
 
     @Override
@@ -603,7 +626,8 @@ public abstract class BaseCommands implements CommandsInterface {
 
     @Override
     public void registerForCallWaitingInfo(Handler h, int what, Object obj) {
-        mCallWaitingInfoRegistrants.addUnique(h, what, obj);
+        Registrant r = new Registrant (h, what, obj);
+        mCallWaitingInfoRegistrants.add(r);
     }
 
     @Override
@@ -613,7 +637,8 @@ public abstract class BaseCommands implements CommandsInterface {
 
     @Override
     public void registerForSignalInfo(Handler h, int what, Object obj) {
-        mSignalInfoRegistrants.addUnique(h, what, obj);
+        Registrant r = new Registrant (h, what, obj);
+        mSignalInfoRegistrants.add(r);
     }
 
     public void setOnUnsolOemHookRaw(Handler h, int what, Object obj) {
@@ -634,7 +659,8 @@ public abstract class BaseCommands implements CommandsInterface {
 
     @Override
     public void registerForCdmaOtaProvision(Handler h,int what, Object obj){
-        mOtaProvisionRegistrants.addUnique(h, what, obj);
+        Registrant r = new Registrant (h, what, obj);
+        mOtaProvisionRegistrants.add(r);
     }
 
     @Override
@@ -644,7 +670,8 @@ public abstract class BaseCommands implements CommandsInterface {
 
     @Override
     public void registerForNumberInfo(Handler h,int what, Object obj) {
-        mNumberInfoRegistrants.addUnique(h, what, obj);
+        Registrant r = new Registrant (h, what, obj);
+        mNumberInfoRegistrants.add(r);
     }
 
     @Override
@@ -654,7 +681,8 @@ public abstract class BaseCommands implements CommandsInterface {
 
      @Override
     public void registerForRedirectedNumberInfo(Handler h,int what, Object obj) {
-        mRedirNumInfoRegistrants.addUnique(h, what, obj);
+        Registrant r = new Registrant (h, what, obj);
+        mRedirNumInfoRegistrants.add(r);
     }
 
     @Override
@@ -664,7 +692,8 @@ public abstract class BaseCommands implements CommandsInterface {
 
     @Override
     public void registerForLineControlInfo(Handler h, int what, Object obj) {
-        mLineControlInfoRegistrants.addUnique(h, what, obj);
+        Registrant r = new Registrant (h, what, obj);
+        mLineControlInfoRegistrants.add(r);
     }
 
     @Override
@@ -674,7 +703,8 @@ public abstract class BaseCommands implements CommandsInterface {
 
     @Override
     public void registerFoT53ClirlInfo(Handler h,int what, Object obj) {
-        mT53ClirInfoRegistrants.addUnique(h, what, obj);
+        Registrant r = new Registrant (h, what, obj);
+        mT53ClirInfoRegistrants.add(r);
     }
 
     @Override
@@ -684,7 +714,8 @@ public abstract class BaseCommands implements CommandsInterface {
 
     @Override
     public void registerForT53AudioControlInfo(Handler h,int what, Object obj) {
-        mT53AudCntrlInfoRegistrants.addUnique(h, what, obj);
+        Registrant r = new Registrant (h, what, obj);
+        mT53AudCntrlInfoRegistrants.add(r);
     }
 
     @Override
@@ -694,7 +725,8 @@ public abstract class BaseCommands implements CommandsInterface {
 
     @Override
     public void registerForRingbackTone(Handler h, int what, Object obj) {
-        mRingbackToneRegistrants.addUnique(h, what, obj);
+        Registrant r = new Registrant (h, what, obj);
+        mRingbackToneRegistrants.add(r);
     }
 
     @Override
@@ -704,7 +736,8 @@ public abstract class BaseCommands implements CommandsInterface {
 
     @Override
     public void registerForResendIncallMute(Handler h, int what, Object obj) {
-        mResendIncallMuteRegistrants.addUnique(h, what, obj);
+        Registrant r = new Registrant (h, what, obj);
+        mResendIncallMuteRegistrants.add(r);
     }
 
     @Override
@@ -714,7 +747,8 @@ public abstract class BaseCommands implements CommandsInterface {
 
     @Override
     public void registerForCdmaSubscriptionChanged(Handler h, int what, Object obj) {
-        mCdmaSubscriptionChangedRegistrants.addUnique(h, what, obj);
+        Registrant r = new Registrant (h, what, obj);
+        mCdmaSubscriptionChangedRegistrants.add(r);
     }
 
     @Override
@@ -724,7 +758,8 @@ public abstract class BaseCommands implements CommandsInterface {
 
     @Override
     public void registerForCdmaPrlChanged(Handler h, int what, Object obj) {
-        mCdmaPrlChangedRegistrants.addUnique(h, what, obj);
+        Registrant r = new Registrant (h, what, obj);
+        mCdmaPrlChangedRegistrants.add(r);
     }
 
     @Override
@@ -734,7 +769,8 @@ public abstract class BaseCommands implements CommandsInterface {
 
     @Override
     public void registerForExitEmergencyCallbackMode(Handler h, int what, Object obj) {
-        mExitEmergencyCallbackModeRegistrants.addUnique(h, what, obj);
+        Registrant r = new Registrant (h, what, obj);
+        mExitEmergencyCallbackModeRegistrants.add(r);
     }
 
     @Override
@@ -744,7 +780,8 @@ public abstract class BaseCommands implements CommandsInterface {
 
     @Override
     public void registerForHardwareConfigChanged(Handler h, int what, Object obj) {
-        mHardwareConfigChangeRegistrants.addUnique(h, what, obj);
+        Registrant r = new Registrant (h, what, obj);
+        mHardwareConfigChangeRegistrants.add(r);
     }
 
     @Override
@@ -755,7 +792,7 @@ public abstract class BaseCommands implements CommandsInterface {
     @Override
     public void registerForNetworkScanResult(Handler h, int what, Object obj) {
         Registrant r = new Registrant(h, what, obj);
-        mRilNetworkScanResultRegistrants.addUnique(h, what, obj);
+        mRilNetworkScanResultRegistrants.add(r);
     }
 
     @Override
@@ -768,10 +805,10 @@ public abstract class BaseCommands implements CommandsInterface {
      */
     @Override
     public void registerForRilConnected(Handler h, int what, Object obj) {
-        mRilConnectedRegistrants.addUnique(h, what, obj);
+        Registrant r = new Registrant (h, what, obj);
+        mRilConnectedRegistrants.add(r);
         if (mRilVersion != -1) {
-            Message.obtain(h, what, new AsyncResult(obj, new Integer(mRilVersion), null))
-                    .sendToTarget();
+            r.notifyRegistrant(new AsyncResult(null, new Integer(mRilVersion), null));
         }
     }
 
@@ -781,7 +818,8 @@ public abstract class BaseCommands implements CommandsInterface {
     }
 
     public void registerForSubscriptionStatusChanged(Handler h, int what, Object obj) {
-        mSubscriptionStatusRegistrants.addUnique(h, what, obj);
+        Registrant r = new Registrant (h, what, obj);
+        mSubscriptionStatusRegistrants.add(r);
     }
 
     public void unregisterForSubscriptionStatusChanged(Handler h) {
@@ -790,7 +828,8 @@ public abstract class BaseCommands implements CommandsInterface {
 
     @Override
     public void registerForEmergencyNumberList(Handler h, int what, Object obj) {
-        mEmergencyNumberListRegistrants.addUnique(h, what, obj);
+        Registrant r = new Registrant(h, what, obj);
+        mEmergencyNumberListRegistrants.add(r);
     }
 
     @Override
@@ -861,7 +900,8 @@ public abstract class BaseCommands implements CommandsInterface {
      */
     @Override
     public void registerForCellInfoList(Handler h, int what, Object obj) {
-        mRilCellInfoListRegistrants.addUnique(h, what, obj);
+        Registrant r = new Registrant (h, what, obj);
+        mRilCellInfoListRegistrants.add(r);
     }
     @Override
     public void unregisterForCellInfoList(Handler h) {
@@ -870,7 +910,8 @@ public abstract class BaseCommands implements CommandsInterface {
 
     @Override
     public void registerForPhysicalChannelConfiguration(Handler h, int what, Object obj) {
-        mPhysicalChannelConfigurationRegistrants.addUnique(h, what, obj);
+        Registrant r = new Registrant(h, what, obj);
+        mPhysicalChannelConfigurationRegistrants.add(r);
     }
 
     @Override
@@ -880,7 +921,9 @@ public abstract class BaseCommands implements CommandsInterface {
 
     @Override
     public void registerForSrvccStateChanged(Handler h, int what, Object obj) {
-        mSrvccStateRegistrants.addUnique(h, what, obj);
+        Registrant r = new Registrant (h, what, obj);
+
+        mSrvccStateRegistrants.add(r);
     }
 
     @Override
@@ -917,7 +960,8 @@ public abstract class BaseCommands implements CommandsInterface {
 
     @Override
     public void registerForRadioCapabilityChanged(Handler h, int what, Object obj) {
-        mPhoneRadioCapabilityChangedRegistrants.addUnique(h, what, obj);
+        Registrant r = new Registrant(h, what, obj);
+        mPhoneRadioCapabilityChangedRegistrants.add(r);
     }
 
     @Override
@@ -939,8 +983,10 @@ public abstract class BaseCommands implements CommandsInterface {
 
     @Override
     public void registerForLceInfo(Handler h, int what, Object obj) {
+        Registrant r = new Registrant(h, what, obj);
+
         synchronized (mStateMonitor) {
-            mLceInfoRegistrants.addUnique(h, what, obj);
+            mLceInfoRegistrants.add(r);
         }
     }
 
@@ -986,7 +1032,7 @@ public abstract class BaseCommands implements CommandsInterface {
         Registrant r = new Registrant(h, what, obj);
 
         synchronized (mStateMonitor) {
-            mNattKeepaliveStatusRegistrants.addUnique(h, what, obj);
+            mNattKeepaliveStatusRegistrants.add(r);
         }
     }
 

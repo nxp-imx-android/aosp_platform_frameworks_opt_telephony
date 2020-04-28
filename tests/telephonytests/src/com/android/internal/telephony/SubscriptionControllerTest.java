@@ -92,13 +92,14 @@ public class SubscriptionControllerTest extends TelephonyTest {
         replaceInstance(MultiSimSettingController.class, "sInstance", null,
                 mMultiSimSettingControllerMock);
 
-        mSubscriptionControllerUT = SubscriptionController.init(mContext);
+        SubscriptionController.init(mContext, null);
+        mSubscriptionControllerUT = SubscriptionController.getInstance();
         mCallingPackage = mContext.getOpPackageName();
 
         doReturn(1).when(mProxyController).getMaxRafSupported();
         mContextFixture.putIntArrayResource(com.android.internal.R.array.sim_colors, new int[]{5});
 
-        mSubscriptionControllerUT.updatePhonesAvailability(new Phone[] {mPhone});
+        mSubscriptionControllerUT.getInstance().updatePhonesAvailability(new Phone[]{mPhone});
     }
 
     @After
@@ -204,7 +205,7 @@ public class SubscriptionControllerTest extends TelephonyTest {
 
         /* Setting */
         String disName = "TESTING";
-        int nameSource = SubscriptionManager.NAME_SOURCE_SIM_SOURCE;
+        int nameSource = SubscriptionManager.NAME_SOURCE_SIM_SPN;
         mSubscriptionControllerUT.setDisplayNameUsingSrc(disName, subID, nameSource);
         SubscriptionInfo subInfo = mSubscriptionControllerUT
                 .getActiveSubscriptionInfo(subID, mCallingPackage);
@@ -467,12 +468,12 @@ public class SubscriptionControllerTest extends TelephonyTest {
 
         // Changing non-opportunistic sub1 shouldn't trigger callback.
         mSubscriptionControllerUT.setDisplayNameUsingSrc("DisplayName", 1,
-                SubscriptionManager.NAME_SOURCE_SIM_SOURCE);
+                SubscriptionManager.NAME_SOURCE_SIM_SPN);
         verify(mTelephonyRegisteryMock, times(1))
                 .notifyOpportunisticSubscriptionInfoChanged();
 
         mSubscriptionControllerUT.setDisplayNameUsingSrc("DisplayName", 2,
-                SubscriptionManager.NAME_SOURCE_SIM_SOURCE);
+                SubscriptionManager.NAME_SOURCE_SIM_SPN);
         verify(mTelephonyRegisteryMock, times(2))
                 .notifyOpportunisticSubscriptionInfoChanged();
     }
@@ -964,7 +965,6 @@ public class SubscriptionControllerTest extends TelephonyTest {
     public void testGetEnabledSubscriptionIdDualSIM() {
         doReturn(SINGLE_SIM).when(mTelephonyManager).getSimCount();
         doReturn(SINGLE_SIM).when(mTelephonyManager).getPhoneCount();
-        doReturn(SINGLE_SIM).when(mTelephonyManager).getActiveModemCount();
         // A dual SIM device may have logical slot 0 mapped to physical slot 0
         // (i.e. logical slot 1 mapped to physical slot 1)
         UiccSlotInfo slot0 = getFakeUiccSlotInfo(true, 0);
@@ -973,7 +973,6 @@ public class SubscriptionControllerTest extends TelephonyTest {
         UiccSlot [] uiccSlots = {mUiccSlot, mUiccSlot};
 
         doReturn(2).when(mTelephonyManager).getPhoneCount();
-        doReturn(2).when(mTelephonyManager).getActiveModemCount();
         doReturn(uiccSlotInfos).when(mTelephonyManager).getUiccSlotsInfo();
         doReturn(uiccSlots).when(mUiccController).getUiccSlots();
         assertEquals(2, UiccController.getInstance().getUiccSlots().length);
@@ -1005,5 +1004,29 @@ public class SubscriptionControllerTest extends TelephonyTest {
         clearInvocations(mDataEnabledSettings);
         mSubscriptionControllerUT.setAlwaysAllowMmsData(0, false);
         verify(mDataEnabledSettings).setAlwaysAllowMmsData(eq(false));
+    }
+
+    @Test
+    @SmallTest
+    public void testNameSourcePriority() throws Exception {
+        assertTrue(mSubscriptionControllerUT.getNameSourcePriority(
+                SubscriptionManager.NAME_SOURCE_USER_INPUT)
+                > mSubscriptionControllerUT.getNameSourcePriority(
+                        SubscriptionManager.NAME_SOURCE_CARRIER));
+
+        assertTrue(mSubscriptionControllerUT.getNameSourcePriority(
+                SubscriptionManager.NAME_SOURCE_CARRIER)
+                > mSubscriptionControllerUT.getNameSourcePriority(
+                SubscriptionManager.NAME_SOURCE_SIM_SPN));
+
+        assertTrue(mSubscriptionControllerUT.getNameSourcePriority(
+                SubscriptionManager.NAME_SOURCE_SIM_SPN)
+                > mSubscriptionControllerUT.getNameSourcePriority(
+                SubscriptionManager.NAME_SOURCE_SIM_PNN));
+
+        assertTrue(mSubscriptionControllerUT.getNameSourcePriority(
+                SubscriptionManager.NAME_SOURCE_SIM_PNN)
+                > mSubscriptionControllerUT.getNameSourcePriority(
+                SubscriptionManager.NAME_SOURCE_DEFAULT_SOURCE));
     }
 }

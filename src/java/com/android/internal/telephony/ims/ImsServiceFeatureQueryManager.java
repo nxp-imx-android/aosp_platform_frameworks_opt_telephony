@@ -25,7 +25,6 @@ import android.telephony.ims.aidl.IImsServiceController;
 import android.telephony.ims.stub.ImsFeatureConfiguration;
 import android.util.Log;
 
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
@@ -72,9 +71,8 @@ public class ImsServiceFeatureQueryManager {
             if (service != null) {
                 queryImsFeatures(IImsServiceController.Stub.asInterface(service));
             } else {
-                Log.w(LOG_TAG, "onServiceConnected: " + name + " binder null.");
+                Log.w(LOG_TAG, "onServiceConnected: " + name + " binder null, cleaning up.");
                 cleanup();
-                mListener.onPermanentError(name);
             }
         }
 
@@ -93,14 +91,7 @@ public class ImsServiceFeatureQueryManager {
                 mListener.onError(mName);
                 return;
             }
-            Set<ImsFeatureConfiguration.FeatureSlotPair> servicePairs;
-            if (config == null) {
-                // ensure that if the ImsService sent a null config, we return an empty feature
-                // set to the ImsResolver.
-                servicePairs = Collections.emptySet();
-            } else {
-                servicePairs = config.getServiceFeatures();
-            }
+            Set<ImsFeatureConfiguration.FeatureSlotPair> servicePairs = config.getServiceFeatures();
             // Complete, remove from active queries and notify.
             cleanup();
             mListener.onComplete(mName, servicePairs);
@@ -126,11 +117,6 @@ public class ImsServiceFeatureQueryManager {
          * Called when a query has failed and should be retried.
          */
         void onError(ComponentName name);
-
-        /**
-         * Called when a query has failed due to a permanent error and should not be retried.
-         */
-        void onPermanentError(ComponentName name);
     }
 
     // Maps an active ImsService query (by Package Name String) its query.

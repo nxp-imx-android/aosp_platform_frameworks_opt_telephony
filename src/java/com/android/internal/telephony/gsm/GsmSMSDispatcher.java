@@ -16,8 +16,6 @@
 
 package com.android.internal.telephony.gsm;
 
-import static com.android.internal.telephony.SmsResponse.NO_ERROR_CODE;
-
 import android.os.AsyncResult;
 import android.os.Message;
 import android.provider.Telephony.Sms.Intents;
@@ -28,9 +26,9 @@ import android.util.Pair;
 import com.android.internal.telephony.GsmAlphabet.TextEncodingDetails;
 import com.android.internal.telephony.InboundSmsHandler;
 import com.android.internal.telephony.Phone;
-import com.android.internal.telephony.SMSDispatcher;
 import com.android.internal.telephony.SmsConstants;
 import com.android.internal.telephony.SmsDispatchersController;
+import com.android.internal.telephony.SMSDispatcher;
 import com.android.internal.telephony.SmsHeader;
 import com.android.internal.telephony.SmsMessageBase;
 import com.android.internal.telephony.uicc.IccRecords;
@@ -38,8 +36,6 @@ import com.android.internal.telephony.uicc.IccUtils;
 import com.android.internal.telephony.uicc.UiccCardApplication;
 import com.android.internal.telephony.uicc.UiccController;
 import com.android.internal.telephony.util.SMSDispatcherUtil;
-
-import dalvik.annotation.compat.UnsupportedAppUsage;
 
 import java.util.HashMap;
 import java.util.concurrent.atomic.AtomicReference;
@@ -50,7 +46,6 @@ public final class GsmSMSDispatcher extends SMSDispatcher {
     private AtomicReference<IccRecords> mIccRecords = new AtomicReference<IccRecords>();
     private AtomicReference<UiccCardApplication> mUiccApplication =
             new AtomicReference<UiccCardApplication>();
-    @UnsupportedAppUsage
     private GsmInboundSmsHandler mGsmInboundSmsHandler;
 
     /** Status report received */
@@ -73,7 +68,6 @@ public final class GsmSMSDispatcher extends SMSDispatcher {
         mUiccController.unregisterForIccChanged(this);
     }
 
-    @UnsupportedAppUsage
     @Override
     protected String getFormat() {
         return SmsConstants.FORMAT_3GPP;
@@ -142,7 +136,6 @@ public final class GsmSMSDispatcher extends SMSDispatcher {
     private void handleStatusReport(AsyncResult ar) {
         byte[] pdu = (byte[]) ar.result;
         SmsMessage sms = SmsMessage.newFromCDS(pdu);
-        boolean handled = false;
 
         if (sms != null) {
             int messageRef = sms.mMessageRef;
@@ -156,44 +149,27 @@ public final class GsmSMSDispatcher extends SMSDispatcher {
                     if (result.second) {
                         deliveryPendingList.remove(i);
                     }
-                    handled = true;
-                    break; // Only expect to see one tracker matching this messageref
+                    // Only expect to see one tracker matching this messageref
+                    break;
                 }
-            }
-            if (!handled) {
-                // Try to find the sent SMS from the map in ImsSmsDispatcher.
-                mSmsDispatchersController.handleSentOverImsStatusReport(
-                        messageRef, getFormat(), pdu);
             }
         }
         mCi.acknowledgeLastIncomingGsmSms(true, Intents.RESULT_SMS_HANDLED, null);
     }
 
     /** {@inheritDoc} */
-    @UnsupportedAppUsage
     @Override
     protected void sendSms(SmsTracker tracker) {
-        int ss = mPhone.getServiceState().getState();
-
-        Rlog.d(TAG, "sendSms: "
-                + " isIms()=" + isIms()
-                + " mRetryCount=" + tracker.mRetryCount
-                + " mImsRetry=" + tracker.mImsRetry
-                + " mMessageRef=" + tracker.mMessageRef
-                + " mUsesImsServiceForIms=" + tracker.mUsesImsServiceForIms
-                + " SS=" + ss);
-
-        // if sms over IMS is not supported on data and voice is not available...
-        if (!isIms() && ss != ServiceState.STATE_IN_SERVICE) {
-            tracker.onFailed(mContext, getNotInServiceError(ss), NO_ERROR_CODE);
-            return;
-        }
-
-        Message reply = obtainMessage(EVENT_SEND_SMS_COMPLETE, tracker);
         HashMap<String, Object> map = tracker.getData();
+
         byte pdu[] = (byte[]) map.get("pdu");
-        byte smsc[] = (byte[]) map.get("smsc");
+
         if (tracker.mRetryCount > 0) {
+            Rlog.d(TAG, "sendSms: "
+                    + " mRetryCount=" + tracker.mRetryCount
+                    + " mMessageRef=" + tracker.mMessageRef
+                    + " SS=" + mPhone.getServiceState().getState());
+
             // per TS 23.040 Section 9.2.3.6:  If TP-MTI SMS-SUBMIT (0x01) type
             //   TP-RD (bit 2) is 1 for retry
             //   and TP-MR is set to previously failed sms TP-MR
@@ -202,6 +178,23 @@ public final class GsmSMSDispatcher extends SMSDispatcher {
                 pdu[1] = (byte) tracker.mMessageRef; // TP-MR
             }
         }
+        Rlog.d(TAG, "sendSms: "
+                + " isIms()=" + isIms()
+                + " mRetryCount=" + tracker.mRetryCount
+                + " mImsRetry=" + tracker.mImsRetry
+                + " mMessageRef=" + tracker.mMessageRef
+                + " mUsesImsServiceForIms=" + tracker.mUsesImsServiceForIms
+                + " SS=" + mPhone.getServiceState().getState());
+
+        int ss = mPhone.getServiceState().getState();
+        // if sms over IMS is not supported on data and voice is not available...
+        if (!isIms() && ss != ServiceState.STATE_IN_SERVICE) {
+            tracker.onFailed(mContext, getNotInServiceError(ss), 0/*errorCode*/);
+            return;
+        }
+
+        byte smsc[] = (byte[]) map.get("smsc");
+        Message reply = obtainMessage(EVENT_SEND_SMS_COMPLETE, tracker);
 
         // sms over gsm is used:
         //   if sms over IMS is not supported AND

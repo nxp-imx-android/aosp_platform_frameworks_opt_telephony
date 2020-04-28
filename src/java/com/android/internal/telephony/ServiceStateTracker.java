@@ -25,7 +25,6 @@ import static com.android.internal.telephony.uicc.IccRecords.CARRIER_NAME_DISPLA
 
 import android.annotation.IntDef;
 import android.annotation.NonNull;
-import android.annotation.Nullable;
 import android.annotation.UnsupportedAppUsage;
 import android.app.AlarmManager;
 import android.app.Notification;
@@ -123,6 +122,7 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
+import java.util.TimeZone;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Matcher;
@@ -220,6 +220,7 @@ public class ServiceStateTracker extends Handler {
     private RegistrantList mPsRestrictDisabledRegistrants = new RegistrantList();
     private RegistrantList mImsCapabilityChangedRegistrants = new RegistrantList();
     private RegistrantList mNrStateChangedRegistrants = new RegistrantList();
+    private RegistrantList mNrFrequencyChangedRegistrants = new RegistrantList();
 
     /* Radio power off pending flag and tag counter */
     private boolean mPendingRadioPowerOffAfterDataOff = false;
@@ -442,14 +443,6 @@ public class ServiceStateTracker extends Handler {
     private CellIdentity mNewCellIdentity;
     private static final int MS_PER_HOUR = 60 * 60 * 1000;
     private final NitzStateMachine mNitzState;
-
-    /**
-     * Holds the last NITZ signal received. Used only for trying to determine an MCC from a CDMA
-     * SID.
-     */
-    @Nullable
-    private NitzData mLastNitzData;
-
     private final EriManager mEriManager;
     @UnsupportedAppUsage
     private final ContentResolver mCr;
@@ -1564,8 +1557,11 @@ public class ServiceStateTracker extends Handler {
                     }
                     mPhone.notifyPhysicalChannelConfiguration(list);
                     mLastPhysicalChannelConfigList = list;
-                    boolean hasChanged =
-                            updateNrFrequencyRangeFromPhysicalChannelConfigs(list, mSS);
+                    boolean hasChanged = false;
+                    if (updateNrFrequencyRangeFromPhysicalChannelConfigs(list, mSS)) {
+                        mNrFrequencyChangedRegistrants.notifyRegistrants();
+                        hasChanged = true;
+                    }
                     if (updateNrStateFromPhysicalChannelConfigs(list, mSS)) {
                         mNrStateChangedRegistrants.notifyRegistrants();
                         hasChanged = true;
@@ -1773,11 +1769,6 @@ public class ServiceStateTracker extends Handler {
             }
             mPhone.notifyOtaspChanged(mCurrentOtaspMode);
         }
-    }
-
-    public void onAirplaneModeChanged(boolean isAirplaneModeOn) {
-        mLastNitzData = null;
-        mNitzState.handleAirplaneModeChanged(isAirplaneModeOn);
     }
 
     protected Phone getPhone() {
@@ -2182,7 +2173,7 @@ public class ServiceStateTracker extends Handler {
                     // information coming from the modem, which might take a long time to come or
                     // even not come at all.  In order to provide the best user experience, we
                     // query the latest signal information so it will show up on the UI on time.
-                    int oldDataRAT = getRilDataRadioTechnologyForWwan(mSS);
+                    int oldDataRAT = mSS.getRilDataRadioTechnology();
                     if (((oldDataRAT == ServiceState.RIL_RADIO_TECHNOLOGY_UNKNOWN)
                             && (newDataRat != ServiceState.RIL_RADIO_TECHNOLOGY_UNKNOWN))
                             || (ServiceState.isCdma(oldDataRAT) && ServiceState.isLte(newDataRat))
@@ -2415,16 +2406,21 @@ public class ServiceStateTracker extends Handler {
              * is set to roaming when either is true.
              *
              * There are exceptions for the above rule.
-             * The new SS is not set as roaming while gsm service or
-             * data service reports roaming but indeed it is same
-             * operator. And the operator is considered non roaming.
+             * The new SS is not set as roaming while gsm service reports
+             * roaming but indeed it is same operator.
+             * And the operator is considered non roaming.
              *
              * The test for the operators is to handle special roaming
              * agreements and MVNO's.
              */
             boolean roaming = (mGsmRoaming || mDataRoaming);
 
-            if (roaming && !isOperatorConsideredRoaming(mNewSS)
+            // for IWLAN case, data is home. Only check voice roaming.
+            if (mNewSS.getRilDataRadioTechnology() == ServiceState.RIL_RADIO_TECHNOLOGY_IWLAN) {
+                roaming = mGsmRoaming;
+            }
+
+            if (mGsmRoaming && !isOperatorConsideredRoaming(mNewSS)
                     && (isSameNamedOperators(mNewSS) || isOperatorConsideredNonRoaming(mNewSS))) {
                 log("updateRoamingState: resource override set non roaming.isSameNamedOperators="
                         + isSameNamedOperators(mNewSS) + ",isOperatorConsideredNonRoaming="
@@ -3202,23 +3198,28 @@ public class ServiceStateTracker extends Handler {
         boolean hasMultiApnSupport = false;
         boolean hasLostMultiApnSupport = false;
         if (mPhone.isPhoneTypeCdmaLte()) {
-            final int wwanDataRat = getRilDataRadioTechnologyForWwan(mSS);
-            final int newWwanDataRat = getRilDataRadioTechnologyForWwan(mNewSS);
             has4gHandoff = mNewSS.getDataRegState() == ServiceState.STATE_IN_SERVICE
-                    && ((ServiceState.isLte(wwanDataRat)
-                    && (newWwanDataRat == ServiceState.RIL_RADIO_TECHNOLOGY_EHRPD))
+                    && ((ServiceState.isLte(mSS.getRilDataRadioTechnology())
+                    && (mNewSS.getRilDataRadioTechnology()
+                    == ServiceState.RIL_RADIO_TECHNOLOGY_EHRPD))
                     ||
-                    ((wwanDataRat == ServiceState.RIL_RADIO_TECHNOLOGY_EHRPD)
-                    && ServiceState.isLte(newWwanDataRat)));
+                    ((mSS.getRilDataRadioTechnology()
+                            == ServiceState.RIL_RADIO_TECHNOLOGY_EHRPD)
+                            && ServiceState.isLte(mNewSS.getRilDataRadioTechnology())));
 
-            hasMultiApnSupport = ((ServiceState.isLte(newWwanDataRat)
-                    || (newWwanDataRat == ServiceState.RIL_RADIO_TECHNOLOGY_EHRPD))
+            hasMultiApnSupport = ((ServiceState.isLte(mNewSS.getRilDataRadioTechnology())
+                    || (mNewSS.getRilDataRadioTechnology()
+                    == ServiceState.RIL_RADIO_TECHNOLOGY_EHRPD))
                     &&
-                    (!ServiceState.isLte(wwanDataRat)
-                    && (wwanDataRat != ServiceState.RIL_RADIO_TECHNOLOGY_EHRPD)));
+                    (!ServiceState.isLte(mSS.getRilDataRadioTechnology())
+                            && (mSS.getRilDataRadioTechnology()
+                            != ServiceState.RIL_RADIO_TECHNOLOGY_EHRPD)));
 
-            hasLostMultiApnSupport = ((newWwanDataRat >= ServiceState.RIL_RADIO_TECHNOLOGY_IS95A)
-                    && (newWwanDataRat <= ServiceState.RIL_RADIO_TECHNOLOGY_EVDO_A));
+            hasLostMultiApnSupport =
+                    ((mNewSS.getRilDataRadioTechnology()
+                            >= ServiceState.RIL_RADIO_TECHNOLOGY_IS95A)
+                            && (mNewSS.getRilDataRadioTechnology()
+                            <= ServiceState.RIL_RADIO_TECHNOLOGY_EVDO_A));
         }
 
         if (DBG) {
@@ -3711,21 +3712,39 @@ public class ServiceStateTracker extends Handler {
             return operatorNumeric;
         }
 
-        // resolve the mcc from sid, using time zone information from the latest NITZ signal when
-        // available.
-        int utcOffsetHours = 0;
-        boolean isDst = false;
-        boolean isNitzTimeZone = false;
-        NitzData lastNitzData = mLastNitzData;
-        if (lastNitzData != null) {
-            utcOffsetHours = lastNitzData.getLocalOffsetMillis() / MS_PER_HOUR;
-            Integer dstAdjustmentMillis = lastNitzData.getDstAdjustmentMillis();
-            isDst = (dstAdjustmentMillis != null) && (dstAdjustmentMillis != 0);
+        // resolve the mcc from sid;
+        // if mNitzState.getSavedTimeZoneId() is null, TimeZone would get the default timeZone,
+        // and the mNitzState.fixTimeZone() couldn't help, because it depends on operator Numeric;
+        // if the sid is conflict and timezone is unavailable, the mcc may be not right.
+        boolean isNitzTimeZone;
+        TimeZone tzone;
+        if (mNitzState.getSavedTimeZoneId() != null) {
+            tzone = TimeZone.getTimeZone(mNitzState.getSavedTimeZoneId());
             isNitzTimeZone = true;
+        } else {
+            NitzData lastNitzData = mNitzState.getCachedNitzData();
+            if (lastNitzData == null) {
+                tzone = null;
+            } else {
+                tzone = TimeZoneLookupHelper.guessZoneByNitzStatic(lastNitzData);
+                if (ServiceStateTracker.DBG) {
+                    log("fixUnknownMcc(): guessNitzTimeZone returned "
+                            + (tzone == null ? tzone : tzone.getID()));
+                }
+            }
+            isNitzTimeZone = false;
         }
+
+        int utcOffsetHours = 0;
+        if (tzone != null) {
+            utcOffsetHours = tzone.getRawOffset() / MS_PER_HOUR;
+        }
+
+        NitzData nitzData = mNitzState.getCachedNitzData();
+        boolean isDst = nitzData != null && nitzData.isDst();
         int mcc = mHbpcdUtils.getMcc(sid, utcOffsetHours, (isDst ? 1 : 0), isNitzTimeZone);
         if (mcc > 0) {
-            operatorNumeric = mcc + DEFAULT_MNC;
+            operatorNumeric = Integer.toString(mcc) + DEFAULT_MNC;
         }
         return operatorNumeric;
     }
@@ -4037,7 +4056,6 @@ public class ServiceStateTracker extends Handler {
                     + " start=" + start + " delay=" + (start - nitzReceiveTime));
         }
         NitzData newNitzData = NitzData.parse(nitzString);
-        mLastNitzData = newNitzData;
         if (newNitzData != null) {
             try {
                 TimestampedValue<NitzData> nitzSignal =
@@ -5031,7 +5049,6 @@ public class ServiceStateTracker extends Handler {
         pw.println(" mEmergencyOnly=" + mEmergencyOnly);
         pw.flush();
         mNitzState.dumpState(pw);
-        pw.println(" mLastNitzData=" + mLastNitzData);
         pw.flush();
         pw.println(" mStartedGprsRegCheck=" + mStartedGprsRegCheck);
         pw.println(" mReportedGprsNoReg=" + mReportedGprsNoReg);
@@ -5569,6 +5586,25 @@ public class ServiceStateTracker extends Handler {
      */
     public void unregisterForNrStateChanged(Handler h) {
         mNrStateChangedRegistrants.remove(h);
+    }
+
+    /**
+     * Registers for 5G NR frequency changed.
+     * @param h handler to notify
+     * @param what what code of message when delivered
+     * @param obj placed in Message.obj
+     */
+    public void registerForNrFrequencyChanged(Handler h, int what, Object obj) {
+        Registrant r = new Registrant(h, what, obj);
+        mNrFrequencyChangedRegistrants.add(r);
+    }
+
+    /**
+     * Unregisters for 5G NR frequency changed.
+     * @param h handler to notify
+     */
+    public void unregisterForNrFrequencyChanged(Handler h) {
+        mNrFrequencyChangedRegistrants.remove(h);
     }
 
     /**

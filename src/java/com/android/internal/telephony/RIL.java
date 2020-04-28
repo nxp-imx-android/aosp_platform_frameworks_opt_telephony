@@ -393,7 +393,7 @@ public class RIL extends BaseCommands implements CommandsInterface {
         }
     }
 
-    private synchronized void resetProxyAndRequestList() {
+    private void resetProxyAndRequestList() {
         mRadioProxy = null;
         mOemHookProxy = null;
 
@@ -413,7 +413,6 @@ public class RIL extends BaseCommands implements CommandsInterface {
     /** Returns a {@link IRadio} instance or null if the service is not available. */
     @VisibleForTesting
     public synchronized IRadio getRadioProxy(Message result) {
-        if (!PhoneConfigurationManager.isPhoneActive(mPhoneId)) return null;
         if (!mIsMobileNetworkSupported) {
             if (RILJ_LOGV) riljLog("getRadioProxy: Not calling getService(): wifi-only");
             if (result != null) {
@@ -504,19 +503,9 @@ public class RIL extends BaseCommands implements CommandsInterface {
         return mRadioProxy;
     }
 
-    @Override
-    public synchronized void onSlotActiveStatusChange(boolean active) {
-        if (active) {
-            // Try to connect to RIL services and set response functions.
-            getRadioProxy(null);
-            getOemHookProxy(null);
-        }
-    }
-
     /** Returns an {@link IOemHook} instance or null if the service is not available. */
     @VisibleForTesting
     public synchronized IOemHook getOemHookProxy(Message result) {
-        if (!PhoneConfigurationManager.isPhoneActive(mPhoneId)) return null;
         if (!mIsMobileNetworkSupported) {
             if (RILJ_LOGV) riljLog("getOemHookProxy: Not calling getService(): wifi-only");
             if (result != null) {
@@ -2641,7 +2630,7 @@ public class RIL extends BaseCommands implements CommandsInterface {
     /**
      * convert RAF from {@link android.hardware.radio.V1_0.RadioAccessFamily} to
      * {@link TelephonyManager.NetworkTypeBitMask}, the bitmask represented by
-     * {@link android.telephony.Annotation.NetworkType}.
+     * {@link TelephonyManager.NetworkType}.
      *
      * @param raf {@link android.hardware.radio.V1_0.RadioAccessFamily}
      * @return {@link TelephonyManager.NetworkTypeBitMask}
@@ -3247,7 +3236,7 @@ public class RIL extends BaseCommands implements CommandsInterface {
     }
 
     @Override
-    public void writeSmsToRuim(int status, byte[] pdu, Message result) {
+    public void writeSmsToRuim(int status, String pdu, Message result) {
         status = translateStatus(status);
         IRadio radioProxy = getRadioProxy(result);
         if (radioProxy != null) {
@@ -3262,7 +3251,7 @@ public class RIL extends BaseCommands implements CommandsInterface {
 
             CdmaSmsWriteArgs args = new CdmaSmsWriteArgs();
             args.status = status;
-            constructCdmaSendSmsRilRequest(args.message, pdu);
+            constructCdmaSendSmsRilRequest(args.message, pdu.getBytes());
 
             try {
                 radioProxy.writeSmsToRuim(rr.mSerial, args);
@@ -5678,19 +5667,19 @@ public class RIL extends BaseCommands implements CommandsInterface {
 
     @UnsupportedAppUsage
     void riljLog(String msg) {
-        Rlog.d(RILJ_LOG_TAG, msg + (" [PHONE" + mPhoneId + "]"));
+        Rlog.d(RILJ_LOG_TAG, msg + (" [SUB" + mPhoneId + "]"));
     }
 
     void riljLoge(String msg) {
-        Rlog.e(RILJ_LOG_TAG, msg + (" [PHONE" + mPhoneId + "]"));
+        Rlog.e(RILJ_LOG_TAG, msg + (" [SUB" + mPhoneId + "]"));
     }
 
     void riljLoge(String msg, Exception e) {
-        Rlog.e(RILJ_LOG_TAG, msg + (" [PHONE" + mPhoneId + "]"), e);
+        Rlog.e(RILJ_LOG_TAG, msg + (" [SUB" + mPhoneId + "]"), e);
     }
 
     void riljLogv(String msg) {
-        Rlog.v(RILJ_LOG_TAG, msg + (" [PHONE" + mPhoneId + "]"));
+        Rlog.v(RILJ_LOG_TAG, msg + (" [SUB" + mPhoneId + "]"));
     }
 
     @UnsupportedAppUsage

@@ -22,6 +22,7 @@ import android.os.Message;
 import android.telephony.SubscriptionManager;
 import android.telephony.TelephonyManager;
 
+import com.android.internal.telephony.PhoneConstants;
 import com.android.internal.telephony.uicc.IccFileHandler;
 import com.android.internal.telephony.uicc.IccUtils;
 import com.android.internal.util.State;
@@ -40,7 +41,6 @@ class RilMessageDecoder extends StateMachine {
     // members
     @UnsupportedAppUsage
     private CommandParamsFactory mCmdParamsFactory = null;
-    @UnsupportedAppUsage
     private RilMessage mCurrentRilMessage = null;
     private Handler mCaller = null;
     private static int mSimCount = 0;
@@ -63,7 +63,7 @@ class RilMessageDecoder extends StateMachine {
     public static synchronized RilMessageDecoder getInstance(Handler caller, IccFileHandler fh,
             int slotId) {
         if (null == mInstance) {
-            mSimCount = TelephonyManager.getDefault().getSupportedModemCount();
+            mSimCount = TelephonyManager.getDefault().getSimCount();
             mInstance = new RilMessageDecoder[mSimCount];
             for (int i = 0; i < mSimCount; i++) {
                 mInstance[i] = null;
@@ -88,7 +88,6 @@ class RilMessageDecoder extends StateMachine {
      *
      * @param rilMsg
      */
-    @UnsupportedAppUsage
     public void sendStartDecodingMessageParams(RilMessage rilMsg) {
         Message msg = obtainMessage(CMD_START);
         msg.obj = rilMsg;
@@ -108,7 +107,6 @@ class RilMessageDecoder extends StateMachine {
         sendMessage(msg);
     }
 
-    @UnsupportedAppUsage
     private void sendCmdForExecution(RilMessage rilMsg) {
         Message msg = mCaller.obtainMessage(CatService.MSG_ID_RIL_MSG_DECODED,
                 new RilMessage(rilMsg));

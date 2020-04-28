@@ -141,7 +141,6 @@ public class UiccCardApplication {
             AppType oldAppType = mAppType;
             AppState oldAppState = mAppState;
             PersoSubState oldPersoSubState = mPersoSubState;
-            PinState oldPin1State = mPin1State;
             mAppType = as.app_type;
             mAuthContext = getAuthContext(mAppType);
             mAppState = as.app_state;
@@ -174,9 +173,6 @@ public class UiccCardApplication {
                 }
                 notifyPinLockedRegistrantsIfNeeded(null);
                 notifyReadyRegistrantsIfNeeded(null);
-            } else {
-                if (mPin1State != oldPin1State)
-                    queryPin1State();
             }
         }
     }

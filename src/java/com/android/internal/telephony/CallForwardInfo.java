@@ -28,10 +28,6 @@ public class CallForwardInfo {
     private static final String TAG = "CallForwardInfo";
 
     @UnsupportedAppUsage
-    public CallForwardInfo() {
-    }
-
-    @UnsupportedAppUsage
     public int             status;      /*1 = active, 0 = not active */
     @UnsupportedAppUsage
     public int             reason;      /* from TS 27.007 7.11 "reason" */

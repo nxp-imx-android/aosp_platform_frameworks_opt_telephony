@@ -18,12 +18,10 @@ package com.android.internal.telephony.mocks;
 
 import android.net.LinkProperties;
 import android.net.NetworkCapabilities;
-import android.os.Binder;
 import android.os.Bundle;
 import android.os.IBinder;
 import android.os.RemoteException;
 import android.os.UserHandle;
-import android.telephony.Annotation.DataFailureCause;
 import android.telephony.CallQuality;
 import android.telephony.CellInfo;
 import android.telephony.DataFailCause;
@@ -32,7 +30,6 @@ import android.telephony.PhysicalChannelConfig;
 import android.telephony.ServiceState;
 import android.telephony.SignalStrength;
 import android.telephony.SubscriptionManager;
-import android.telephony.emergency.EmergencyNumber;
 import android.telephony.ims.ImsReasonInfo;
 
 import com.android.internal.telephony.IOnSubscriptionsChangedListener;
@@ -184,7 +181,7 @@ public class TelephonyRegistryMock extends ITelephonyRegistry.Stub {
 
             r.onOpportunisticSubscriptionsChangedListenerCallback = callback;
             r.callingPackage = callingPackage;
-            r.callerUserId = UserHandle.getUserHandleForUid(Binder.getCallingUid()).getIdentifier();
+            r.callerUserId = UserHandle.getCallingUserId();
             r.events = 0;
             r.canReadPhoneState = true; // permission has been enforced above
             // Always notify when registration occurs if there has been a notification.
@@ -264,12 +261,12 @@ public class TelephonyRegistryMock extends ITelephonyRegistry.Stub {
     }
 
     @Override
-    public void notifyCallStateForAllSubs(int state, String incomingNumber) {
+    public void notifyCallState(int state, String incomingNumber) {
         throw new RuntimeException("Not implemented");
     }
 
     @Override
-    public void notifyCallState(int phoneId, int subId, int state,
+    public void notifyCallStateForPhoneId(int phoneId, int subId, int state,
                 String incomingNumber) {
         throw new RuntimeException("Not implemented");
     }
@@ -367,18 +364,6 @@ public class TelephonyRegistryMock extends ITelephonyRegistry.Stub {
     }
 
     @Override
-    public void notifyOutgoingEmergencyCall(int phoneId, int subId,
-            EmergencyNumber emergencyNumber) {
-        throw new RuntimeException("Not implemented");
-    }
-
-    @Override
-    public void notifyOutgoingEmergencySms(int phoneId, int subId,
-            EmergencyNumber emergencyNumber) {
-        throw new RuntimeException("Not implemented");
-    }
-
-    @Override
     public void notifyCallQualityChanged(CallQuality callQuality, int phoneId, int subId,
             int callNetworkType) {
         throw new RuntimeException("Not implemented");
@@ -399,7 +384,7 @@ public class TelephonyRegistryMock extends ITelephonyRegistry.Stub {
     @Override
     public void notifyPreciseDataConnectionFailed(int phoneId, int subId,
                                                   String apnType, String apn,
-                                                  @DataFailureCause int failCause) {
+                                                  @DataFailCause.FailCause int failCause) {
         throw new RuntimeException("Not implemented");
     }
 

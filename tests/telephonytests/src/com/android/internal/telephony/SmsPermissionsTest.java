@@ -15,9 +15,6 @@
  */
 package com.android.internal.telephony;
 
-import static android.content.pm.PackageManager.PERMISSION_DENIED;
-import static android.content.pm.PackageManager.PERMISSION_GRANTED;
-
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
@@ -55,7 +52,6 @@ public class SmsPermissionsTest {
     private SmsPermissions mSmsPermissionsTest;
 
     private boolean mCallerHasCarrierPrivileges;
-    private boolean mCallerIsDefaultSmsPackage;
 
     @Before
     public void setUp() throws Exception {
@@ -71,11 +67,6 @@ public class SmsPermissionsTest {
                     if (!mCallerHasCarrierPrivileges) {
                         throw new SecurityException(message);
                     }
-                }
-
-                @Override
-                public boolean isDefaultSmsPackage(String packageName) {
-                    return mCallerIsDefaultSmsPackage;
                 }
             };
             initialized.countDown();
@@ -113,7 +104,7 @@ public class SmsPermissionsTest {
     @Test
     public void testCheckCallingSendTextPermissions_persist_noAppOps() {
         Mockito.when(mMockAppOps.noteOp(
-                AppOpsManager.OPSTR_SEND_SMS, Binder.getCallingUid(), PACKAGE))
+                AppOpsManager.OP_SEND_SMS, Binder.getCallingUid(), PACKAGE))
                 .thenReturn(AppOpsManager.MODE_ERRORED);
         assertFalse(mSmsPermissionsTest.checkCallingCanSendText(
                 true /* persistMessageForNonDefaultSmsApp */, PACKAGE, MESSAGE));
@@ -128,7 +119,7 @@ public class SmsPermissionsTest {
         Mockito.doThrow(new SecurityException(MESSAGE)).when(mMockContext)
                 .enforceCallingPermission(Manifest.permission.SEND_SMS, MESSAGE);
         Mockito.when(mMockAppOps.noteOp(
-                AppOpsManager.OPSTR_SEND_SMS, Binder.getCallingUid(), PACKAGE))
+                AppOpsManager.OP_SEND_SMS, Binder.getCallingUid(), PACKAGE))
                 .thenReturn(AppOpsManager.MODE_ERRORED);
 
         assertTrue(mSmsPermissionsTest.checkCallingCanSendText(
@@ -170,60 +161,9 @@ public class SmsPermissionsTest {
     @Test
     public void testCheckCallingSendTextPermissions_noPersist_noAppOps() {
         Mockito.when(mMockAppOps.noteOp(
-                AppOpsManager.OPSTR_SEND_SMS, Binder.getCallingUid(), PACKAGE))
+                AppOpsManager.OP_SEND_SMS, Binder.getCallingUid(), PACKAGE))
                 .thenReturn(AppOpsManager.MODE_ERRORED);
         assertFalse(mSmsPermissionsTest.checkCallingCanSendText(
                 false /* persistMessageForNonDefaultSmsApp */, PACKAGE, MESSAGE));
-    }
-
-    @Test
-    public void testCheckCallingOrSelfCanGetSmscAddressPermissions_defaultSmsApp() {
-        mCallerIsDefaultSmsPackage = true;
-        // Other permissions shouldn't matter.
-        Mockito.when(mMockContext.checkCallingOrSelfPermission(
-                    Manifest.permission.READ_PRIVILEGED_PHONE_STATE))
-                .thenReturn(PERMISSION_DENIED);
-        assertTrue(mSmsPermissionsTest.checkCallingOrSelfCanGetSmscAddress(PACKAGE, MESSAGE));
-    }
-
-    @Test
-    public void testCheckCallingOrSelfCanGetSmscAddressPermissions_hasReadPrivilegedPhoneState() {
-        Mockito.when(mMockContext.checkCallingOrSelfPermission(
-                    Manifest.permission.READ_PRIVILEGED_PHONE_STATE))
-                .thenReturn(PERMISSION_GRANTED);
-        assertTrue(mSmsPermissionsTest.checkCallingOrSelfCanGetSmscAddress(PACKAGE, MESSAGE));
-    }
-
-    @Test
-    public void testCheckCallingOrSelfCanGetSmscAddressPermissions_noPermissions() {
-        Mockito.when(mMockContext.checkCallingOrSelfPermission(
-                    Manifest.permission.READ_PRIVILEGED_PHONE_STATE))
-                .thenReturn(PERMISSION_DENIED);
-        assertFalse(mSmsPermissionsTest.checkCallingOrSelfCanGetSmscAddress(PACKAGE, MESSAGE));
-    }
-    @Test
-    public void testCheckCallingOrSelfCanSetSmscAddressPermissions_defaultSmsApp() {
-        mCallerIsDefaultSmsPackage = true;
-        // Other permissions shouldn't matter.
-        Mockito.when(mMockContext.checkCallingOrSelfPermission(
-                    Manifest.permission.MODIFY_PHONE_STATE))
-                .thenReturn(PERMISSION_DENIED);
-        assertTrue(mSmsPermissionsTest.checkCallingOrSelfCanSetSmscAddress(PACKAGE, MESSAGE));
-    }
-
-    @Test
-    public void testCheckCallingOrSelfCanSetSmscAddressPermissions_hasModifyPhoneState() {
-        Mockito.when(mMockContext.checkCallingOrSelfPermission(
-                    Manifest.permission.MODIFY_PHONE_STATE))
-                .thenReturn(PERMISSION_GRANTED);
-        assertTrue(mSmsPermissionsTest.checkCallingOrSelfCanSetSmscAddress(PACKAGE, MESSAGE));
-    }
-
-    @Test
-    public void testCheckCallingOrSelfCanSetSmscAddressPermissions_noPermissions() {
-        Mockito.when(mMockContext.checkCallingOrSelfPermission(
-                    Manifest.permission.MODIFY_PHONE_STATE))
-                .thenReturn(PERMISSION_DENIED);
-        assertFalse(mSmsPermissionsTest.checkCallingOrSelfCanSetSmscAddress(PACKAGE, MESSAGE));
     }
 }

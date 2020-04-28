@@ -16,6 +16,8 @@
 
 package com.android.internal.telephony;
 
+import static com.android.internal.telephony.TelephonyTestUtils.waitForMs;
+
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNull;
 import static org.mockito.Matchers.eq;
@@ -24,6 +26,7 @@ import static org.mockito.Mockito.doReturn;
 import android.database.Cursor;
 import android.database.MatrixCursor;
 import android.net.Uri;
+import android.os.HandlerThread;
 import android.provider.Telephony.CarrierId;
 import android.provider.Telephony.Carriers;
 import android.service.carrier.CarrierIdentifier;
@@ -31,18 +34,13 @@ import android.telephony.TelephonyManager;
 import android.test.mock.MockContentProvider;
 import android.test.mock.MockContentResolver;
 import android.test.suitebuilder.annotation.SmallTest;
-import android.testing.AndroidTestingRunner;
-import android.testing.TestableLooper;
 
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
-import org.junit.runner.RunWith;
 
 import java.util.Arrays;
 
-@RunWith(AndroidTestingRunner.class)
-@TestableLooper.RunWithLooper
 public class CarrierResolverTest extends TelephonyTest {
     private static final String MCCMNC = "311480";
     private static final String NAME = "VZW";
@@ -89,6 +87,19 @@ public class CarrierResolverTest extends TelephonyTest {
     private static final int PREFER_APN_SET_EVENT = 3;
 
     private CarrierResolver mCarrierResolver;
+    private CarrierResolverHandler mCarrierCarrierResolverHandler;
+
+    private class CarrierResolverHandler extends HandlerThread {
+        private CarrierResolverHandler(String name) {
+            super(name);
+        }
+
+        @Override
+        public void onLooperPrepared() {
+            mCarrierResolver = new CarrierResolver(mPhone);
+            setReady(true);
+        }
+    }
 
     @Before
     public void setUp() throws Exception {
@@ -96,9 +107,11 @@ public class CarrierResolverTest extends TelephonyTest {
         super.setUp(getClass().getSimpleName());
         ((MockContentResolver) mContext.getContentResolver()).addProvider(
                 CarrierId.AUTHORITY, new CarrierIdContentProvider());
-        mCarrierResolver = new CarrierResolver(mPhone);
+        // start handler thread
+        mCarrierCarrierResolverHandler = new CarrierResolverHandler(getClass().getSimpleName());
+        mCarrierCarrierResolverHandler.start();
+        waitUntilReady();
         mCarrierResolver.sendEmptyMessage(ICC_CHANGED_EVENT);
-        processAllMessages();
         logd("CarrierResolverTest -Setup!");
     }
 
@@ -107,6 +120,8 @@ public class CarrierResolverTest extends TelephonyTest {
         logd("CarrierResolver -tearDown");
         mCarrierResolver.removeCallbacksAndMessages(null);
         mCarrierResolver = null;
+        mCarrierCarrierResolverHandler.quit();
+        mCarrierCarrierResolverHandler.join();
         super.tearDown();
     }
 
@@ -117,13 +132,13 @@ public class CarrierResolverTest extends TelephonyTest {
         doReturn(MCCMNC).when(mTelephonyManager).getSimOperatorNumericForPhone(eq(phoneId));
         // trigger sim loading event
         mCarrierResolver.sendEmptyMessage(SIM_LOAD_EVENT);
-        processAllMessages();
+        waitForMs(200);
         assertEquals(CID_VZW, mCarrierResolver.getCarrierId());
         assertEquals(NAME, mCarrierResolver.getCarrierName());
 
         doReturn(SPN_FI).when(mSimRecords).getServiceProviderName();
         mCarrierResolver.sendEmptyMessage(SIM_LOAD_EVENT);
-        processAllMessages();
+        waitForMs(200);
         assertEquals(CID_FI, mCarrierResolver.getCarrierId());
         assertEquals(NAME_FI, mCarrierResolver.getCarrierName());
     }
@@ -136,7 +151,7 @@ public class CarrierResolverTest extends TelephonyTest {
         doReturn(SPN_FI).when(mSimRecords).getServiceProviderName();
 
         mCarrierResolver.sendEmptyMessage(SIM_LOAD_EVENT);
-        processAllMessages();
+        waitForMs(200);
 
         assertEquals(CID_FI, mCarrierResolver.getCarrierId());
         assertEquals(NAME_FI, mCarrierResolver.getCarrierName());
@@ -146,7 +161,7 @@ public class CarrierResolverTest extends TelephonyTest {
                 .getSimOperatorNumericForPhone(eq(phoneId));
         doReturn(SPN_VODAFONE).when(mSimRecords).getServiceProviderName();
         mCarrierResolver.sendEmptyMessage(SIM_LOAD_EVENT);
-        processAllMessages();
+        waitForMs(200);
         assertEquals(CID_VODAFONE, mCarrierResolver.getCarrierId());
         assertEquals(NAME_VODAFONE, mCarrierResolver.getCarrierName());
         assertEquals(CID_VODAFONE, mCarrierResolver.getMnoCarrierId());
@@ -160,27 +175,27 @@ public class CarrierResolverTest extends TelephonyTest {
                 .getSimOperatorNumericForPhone(eq(phoneId));
 
         mCarrierResolver.sendEmptyMessage(SIM_LOAD_EVENT);
-        processAllMessages();
+        waitForMs(200);
         assertEquals(CID_ATT, mCarrierResolver.getCarrierId());
         assertEquals(CID_ATT, mCarrierResolver.getSpecificCarrierId());
 
         doReturn(GID_TRACFONE).when(mPhone).getGroupIdLevel1();
         mCarrierResolver.sendEmptyMessage(SIM_LOAD_EVENT);
-        processAllMessages();
+        waitForMs(200);
         assertEquals(CID_TRACFONE, mCarrierResolver.getCarrierId());
         assertEquals(CID_TRACFONE_ATT, mCarrierResolver.getSpecificCarrierId());
 
         doReturn(MCCMNC_TRACFONE_TMO).when(mTelephonyManager)
                 .getSimOperatorNumericForPhone(eq(phoneId));
         mCarrierResolver.sendEmptyMessage(SIM_LOAD_EVENT);
-        processAllMessages();
+        waitForMs(200);
         assertEquals(CID_TRACFONE, mCarrierResolver.getCarrierId());
         assertEquals(CID_TRACFONE_TMO, mCarrierResolver.getSpecificCarrierId());
 
         doReturn(MCCMNC_O2).when(mTelephonyManager)
                 .getSimOperatorNumericForPhone(eq(phoneId));
         mCarrierResolver.sendEmptyMessage(SIM_LOAD_EVENT);
-        processAllMessages();
+        waitForMs(200);
         assertEquals(CID_O2, mCarrierResolver.getCarrierId());
         assertEquals(CID_O2, mCarrierResolver.getSpecificCarrierId());
 
@@ -188,7 +203,7 @@ public class CarrierResolverTest extends TelephonyTest {
                 .getSimOperatorNumericForPhone(eq(phoneId));
         doReturn(GID_O2_PREPAID).when(mPhone).getGroupIdLevel1();
         mCarrierResolver.sendEmptyMessage(SIM_LOAD_EVENT);
-        processAllMessages();
+        waitForMs(200);
         assertEquals(CID_O2, mCarrierResolver.getCarrierId());
         assertEquals(CID_O2_PREPAID, mCarrierResolver.getSpecificCarrierId());
     }
@@ -200,12 +215,12 @@ public class CarrierResolverTest extends TelephonyTest {
         doReturn(MCCMNC).when(mTelephonyManager).getSimOperatorNumericForPhone(eq(phoneId));
         // trigger sim loading event
         mCarrierResolver.sendEmptyMessage(SIM_LOAD_EVENT);
-        processAllMessages();
+        waitForMs(200);
         assertEquals(CID_VZW, mCarrierResolver.getCarrierId());
         assertEquals(NAME, mCarrierResolver.getCarrierName());
         // trigger sim absent event
         mCarrierResolver.resolveSubscriptionCarrierId(IccCardConstants.INTENT_VALUE_ICC_ABSENT);
-        processAllMessages();
+        waitForMs(200);
         assertEquals(CID_UNKNOWN, mCarrierResolver.getCarrierId());
         assertNull(mCarrierResolver.getCarrierName());
         assertNull(mCarrierResolver.getCarrierName());
@@ -219,7 +234,7 @@ public class CarrierResolverTest extends TelephonyTest {
         doReturn("12345").when(mTelephonyManager).getSimOperatorNumericForPhone(eq(phoneId));
         // trigger sim loading event
         mCarrierResolver.sendEmptyMessage(SIM_LOAD_EVENT);
-        processAllMessages();
+        waitForMs(200);
         assertEquals(CID_UNKNOWN, mCarrierResolver.getCarrierId());
         assertNull(mCarrierResolver.getCarrierName());
     }
@@ -229,7 +244,7 @@ public class CarrierResolverTest extends TelephonyTest {
     public void testGetCarrierIdFromIdentifier() {
         // trigger sim loading event
         mCarrierResolver.sendEmptyMessage(SIM_LOAD_EVENT);
-        processAllMessages();
+        waitForMs(200);
 
         CarrierIdentifier identifier = new CarrierIdentifier(null, null, null, null, null, null);
         int carrierid = mCarrierResolver.getCarrierIdFromIdentifier(mContext, identifier);
@@ -253,14 +268,14 @@ public class CarrierResolverTest extends TelephonyTest {
         doReturn(MCCMNC).when(mTelephonyManager).getSimOperatorNumericForPhone(eq(phoneId));
         // trigger sim loading event
         mCarrierResolver.sendEmptyMessage(SIM_LOAD_EVENT);
-        processAllMessages();
+        waitForMs(200);
         assertEquals(CID_VZW, mCarrierResolver.getCarrierId());
         assertEquals(NAME, mCarrierResolver.getCarrierName());
         // mock apn
         ((MockContentResolver) mContext.getContentResolver()).addProvider(
                 Carriers.CONTENT_URI.getAuthority(), new CarrierIdContentProvider());
         mCarrierResolver.sendEmptyMessage(PREFER_APN_SET_EVENT);
-        processAllMessages();
+        waitForMs(200);
         assertEquals(CID_DOCOMO, mCarrierResolver.getCarrierId());
         assertEquals(NAME_DOCOMO, mCarrierResolver.getCarrierName());
     }

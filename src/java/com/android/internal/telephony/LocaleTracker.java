@@ -25,8 +25,8 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.net.wifi.WifiManager;
 import android.os.AsyncResult;
-import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.Message;
@@ -48,7 +48,6 @@ import java.io.FileDescriptor;
 import java.io.PrintWriter;
 import java.util.HashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 
@@ -76,31 +75,6 @@ public class LocaleTracker extends Handler {
 
     /** Event to fire if the operator from ServiceState is considered truly lost */
     private static final int EVENT_OPERATOR_LOST = 6;
-
-    /** Event to override the current locale */
-    private static final int EVENT_OVERRIDE_LOCALE = 7;
-
-    /**
-     * The broadcast intent action to override the current country for testing purposes
-     *
-     * <p> This broadcast is not effective on user build.
-     *
-     * <p>Example: To override the current country <code>
-     * adb shell am broadcast -a com.android.internal.telephony.action.COUNTRY_OVERRIDE
-     * --es country us </code>
-     *
-     * <p> To remove the override <code>
-     * adb shell am broadcast -a com.android.internal.telephony.action.COUNTRY_OVERRIDE
-     * --ez reset true</code>
-     */
-    private static final String ACTION_COUNTRY_OVERRIDE =
-            "com.android.internal.telephony.action.COUNTRY_OVERRIDE";
-
-    /** The extra for country override */
-    private static final String EXTRA_COUNTRY = "country";
-
-    /** The extra for country override reset */
-    private static final String EXTRA_RESET = "reset";
 
     // Todo: Read this from Settings.
     /** The minimum delay to get cell info from the modem */
@@ -146,10 +120,6 @@ public class LocaleTracker extends Handler {
     @Nullable
     private String mCurrentCountryIso;
 
-    /** The country override for testing purposes */
-    @Nullable
-    private String mCountryOverride;
-
     /** Current service state. Must be one of ServiceState.STATE_XXX. */
     private int mLastServiceState = ServiceState.STATE_POWER_OFF;
 
@@ -168,13 +138,6 @@ public class LocaleTracker extends Handler {
                             intent.getIntExtra(TelephonyManager.EXTRA_SIM_STATE,
                                     TelephonyManager.SIM_STATE_UNKNOWN), 0).sendToTarget();
                 }
-            } else if (ACTION_COUNTRY_OVERRIDE.equals(intent.getAction())) {
-                String countryOverride = intent.getStringExtra(EXTRA_COUNTRY);
-                boolean reset = intent.getBooleanExtra(EXTRA_RESET, false);
-                if (reset) countryOverride = null;
-                log("Received country override: " + countryOverride);
-                // countryOverride null to reset the override.
-                obtainMessage(EVENT_OVERRIDE_LOCALE, countryOverride).sendToTarget();
             }
         }
     };
@@ -218,11 +181,6 @@ public class LocaleTracker extends Handler {
                 updateTrackingStatus();
                 break;
 
-            case EVENT_OVERRIDE_LOCALE:
-                mCountryOverride = (String) msg.obj;
-                updateLocale();
-                break;
-
             default:
                 throw new IllegalStateException("Unexpected message arrives. msg = " + msg.what);
         }
@@ -243,24 +201,10 @@ public class LocaleTracker extends Handler {
 
         final IntentFilter filter = new IntentFilter();
         filter.addAction(TelephonyManager.ACTION_SIM_CARD_STATE_CHANGED);
-        if (Build.IS_DEBUGGABLE) {
-            filter.addAction(ACTION_COUNTRY_OVERRIDE);
-        }
         mPhone.getContext().registerReceiver(mBroadcastReceiver, filter);
 
         mPhone.registerForServiceStateChanged(this, EVENT_SERVICE_STATE_CHANGED, null);
         mPhone.registerForCellInfo(this, EVENT_UNSOL_CELL_INFO, null);
-    }
-
-    private @NonNull String getCarrierCountry() {
-        // The locale from the "ro.carrier" system property or R.array.carrier_properties.
-        // This will be overwritten by the Locale from the SIM language settings (EF-PL, EF-LI)
-        // if applicable.
-        final Locale carrierLocale = mPhone.getLocaleFromCarrierProperties();
-        if (carrierLocale != null && !TextUtils.isEmpty(carrierLocale.getCountry())) {
-            return carrierLocale.getCountry();
-        }
-        return "";
     }
 
     /**
@@ -455,16 +399,11 @@ public class LocaleTracker extends Handler {
     private synchronized void updateLocale() {
         // If MCC is available from network service state, use it first.
         String mcc = null;
-        String countryIso = getCarrierCountry();
-        boolean isBogusMcc = false;
-
+        String countryIso = "";
         if (!TextUtils.isEmpty(mOperatorNumeric)) {
             try {
                 mcc = mOperatorNumeric.substring(0, 3);
                 countryIso = MccTable.countryCodeForMcc(mcc);
-                if (!TextUtils.isEmpty(mcc) && TextUtils.isEmpty(countryIso)) {
-                    isBogusMcc = true;
-                }
             } catch (StringIndexOutOfBoundsException ex) {
                 loge("updateLocale: Can't get country from operator numeric. mcc = "
                         + mcc + ". ex=" + ex);
@@ -478,13 +417,7 @@ public class LocaleTracker extends Handler {
             countryIso = MccTable.countryCodeForMcc(mcc);
         }
 
-        if (mCountryOverride != null) {
-            countryIso = mCountryOverride;
-            log("Override current country to " + mCountryOverride);
-        }
-
-        log("updateLocale: mcc = " + mcc + ", country = " + countryIso
-                + ", isBogusMcc = " + isBogusMcc);
+        log("updateLocale: mcc = " + mcc + ", country = " + countryIso);
         boolean countryChanged = false;
         if (!Objects.equals(countryIso, mCurrentCountryIso)) {
             String msg = "updateLocale: Change the current country to \"" + countryIso
@@ -496,6 +429,20 @@ public class LocaleTracker extends Handler {
             TelephonyManager.setTelephonyProperty(mPhone.getPhoneId(),
                     TelephonyProperties.PROPERTY_OPERATOR_ISO_COUNTRY, mCurrentCountryIso);
 
+            // Set the country code for wifi. This sets allowed wifi channels based on the
+            // country of the carrier we see. If we can't see any, reset to 0 so we don't
+            // broadcast on forbidden channels.
+            WifiManager wifiManager = (WifiManager) mPhone.getContext()
+                    .getSystemService(Context.WIFI_SERVICE);
+            if (wifiManager != null) {
+                wifiManager.setCountryCode(countryIso);
+            } else {
+                msg = "Wifi manager is not available.";
+                log(msg);
+                mLocalLog.log(msg);
+            }
+
+
             Intent intent = new Intent(TelephonyManager.ACTION_NETWORK_COUNTRY_CHANGED);
             intent.putExtra(TelephonyManager.EXTRA_NETWORK_COUNTRY, countryIso);
             SubscriptionManager.putPhoneIdAndSubIdExtra(intent, mPhone.getPhoneId());
@@ -504,8 +451,7 @@ public class LocaleTracker extends Handler {
             countryChanged = true;
         }
 
-        // For bogus mcc, the countryIso is always empty, it should be marked as available.
-        if (TextUtils.isEmpty(countryIso) && !isBogusMcc) {
+        if (TextUtils.isEmpty(countryIso)) {
             mNitzStateMachine.handleNetworkCountryCodeUnavailable();
         } else {
             mNitzStateMachine.handleNetworkCountryCodeSet(countryChanged);

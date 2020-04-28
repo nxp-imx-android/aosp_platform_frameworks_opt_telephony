@@ -26,10 +26,9 @@ import static org.mockito.Mockito.verify;
 
 import android.os.AsyncResult;
 import android.os.Handler;
+import android.os.HandlerThread;
 import android.os.Message;
 import android.test.suitebuilder.annotation.SmallTest;
-import android.testing.AndroidTestingRunner;
-import android.testing.TestableLooper;
 
 import com.android.internal.telephony.CommandException;
 import com.android.internal.telephony.TelephonyTest;
@@ -38,11 +37,8 @@ import com.android.internal.telephony.test.SimulatedCommands;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
-import org.junit.runner.RunWith;
 import org.mockito.Mock;
 
-@RunWith(AndroidTestingRunner.class)
-@TestableLooper.RunWithLooper
 public class UiccCardApplicationTest extends TelephonyTest {
     private UiccCardApplication mUiccCardApplication;
     @Mock
@@ -50,12 +46,53 @@ public class UiccCardApplicationTest extends TelephonyTest {
     @Mock
     private UiccProfile mUiccProfile;
     private Handler mHandler;
+    private UiccCardAppTestHandlerThread mTestHandlerThread;
     private int mAttemptsRemaining = -1;
     private CommandException mException = null;
-    private static final int UICCCARDAPP_ENABLE_FDN_EVENT = 1;
-    private static final int UICCCARDAPP_ENABLE_LOCK_EVENT = 2;
-    private static final int UICCCARDAPP_CHANGE_PSW_EVENT = 3;
-    private static final int UICCCARDAPP_SUPPLY_PIN_EVENT = 4;
+    private static final int UICCCARDAPP_UPDATE_EVENT = 1;
+    private static final int UICCCARDAPP_ENABLE_FDN_EVENT = 2;
+    private static final int UICCCARDAPP_ENABLE_LOCK_EVENT = 3;
+    private static final int UICCCARDAPP_CHANGE_PSW_EVENT = 4;
+    private static final int UICCCARDAPP_SUPPLY_PIN_EVENT = 5;
+    private class UiccCardAppTestHandlerThread extends HandlerThread {
+
+        private UiccCardAppTestHandlerThread(String name) {
+            super(name);
+        }
+        @Override
+        public void onLooperPrepared() {
+            mUiccCardApplication = new UiccCardApplication(mUiccProfile, mUiccCardAppStatus,
+                    mContext, mSimulatedCommands);
+            mHandler = new Handler(mTestHandlerThread.getLooper()) {
+                @Override
+                public void handleMessage(Message msg) {
+                    switch (msg.what) {
+                        case UICCCARDAPP_UPDATE_EVENT:
+                            logd("Update UiccCardApplication Status");
+                            mUiccCardApplication.update(mUiccCardAppStatus,
+                                    mContext,
+                                    mSimulatedCommands);
+                            setReady(true);
+                            break;
+                        case UICCCARDAPP_SUPPLY_PIN_EVENT:
+                        case UICCCARDAPP_CHANGE_PSW_EVENT:
+                        case UICCCARDAPP_ENABLE_LOCK_EVENT:
+                        case UICCCARDAPP_ENABLE_FDN_EVENT:
+                            mAttemptsRemaining = msg.arg1;
+                            mException = (CommandException) ((AsyncResult) msg.obj).exception;
+                            if (mAttemptsRemaining != -1) {
+                                logd("remaining Attempt:" + mAttemptsRemaining);
+                            }
+                            setReady(true);
+                            break;
+                        default:
+                            logd("Unknown Event " + msg.what);
+                    }
+                }
+            };
+            setReady(true);
+        }
+    }
 
     @Before
     public void setUp() throws Exception {
@@ -67,32 +104,15 @@ public class UiccCardApplicationTest extends TelephonyTest {
         mUiccCardAppStatus.pin1 = IccCardStatus.PinState.PINSTATE_ENABLED_NOT_VERIFIED;
         mUiccCardAppStatus.pin2 = IccCardStatus.PinState.PINSTATE_ENABLED_VERIFIED;
 
-        mUiccCardApplication = new UiccCardApplication(mUiccProfile, mUiccCardAppStatus,
-            mContext, mSimulatedCommands);
-        mHandler = new Handler() {
-            @Override
-            public void handleMessage(Message msg) {
-                switch (msg.what) {
-                    case UICCCARDAPP_SUPPLY_PIN_EVENT:
-                    case UICCCARDAPP_CHANGE_PSW_EVENT:
-                    case UICCCARDAPP_ENABLE_LOCK_EVENT:
-                    case UICCCARDAPP_ENABLE_FDN_EVENT:
-                        mAttemptsRemaining = msg.arg1;
-                        mException = (CommandException) ((AsyncResult) msg.obj).exception;
-                        if (mAttemptsRemaining != -1) {
-                            logd("remaining Attempt:" + mAttemptsRemaining);
-                        }
-                        break;
-                    default:
-                        logd("Unknown Event " + msg.what);
-                }
-            }
-        };
-        processAllMessages();
+        mTestHandlerThread = new UiccCardAppTestHandlerThread(TAG);
+        mTestHandlerThread.start();
+
+        waitUntilReady();
     }
 
     @After
     public void tearDown() throws Exception {
+        mTestHandlerThread.quit();
         super.tearDown();
     }
 
@@ -101,9 +121,11 @@ public class UiccCardApplicationTest extends TelephonyTest {
     public void testGetSetAppType() {
         assertEquals(IccCardApplicationStatus.AppType.APPTYPE_SIM, mUiccCardApplication.getType());
         mUiccCardAppStatus.app_type = IccCardApplicationStatus.AppType.APPTYPE_USIM;
-        logd("Update UiccCardApplication Status");
-        mUiccCardApplication.update(mUiccCardAppStatus, mContext, mSimulatedCommands);
-        processAllMessages();
+        Message mCardAppUpdate = mHandler.obtainMessage(UICCCARDAPP_UPDATE_EVENT);
+        setReady(false);
+        mCardAppUpdate.sendToTarget();
+
+        waitUntilReady();
         assertEquals(IccCardApplicationStatus.AppType.APPTYPE_USIM, mUiccCardApplication.getType());
     }
 
@@ -113,9 +135,11 @@ public class UiccCardApplicationTest extends TelephonyTest {
         assertEquals(IccCardApplicationStatus.AppState.APPSTATE_PIN,
                 mUiccCardApplication.getState());
         mUiccCardAppStatus.app_state = IccCardApplicationStatus.AppState.APPSTATE_PUK;
-        logd("Update UiccCardApplication Status");
-        mUiccCardApplication.update(mUiccCardAppStatus, mContext, mSimulatedCommands);
-        processAllMessages();
+        Message mCardAppUpdate = mHandler.obtainMessage(UICCCARDAPP_UPDATE_EVENT);
+        setReady(false);
+        mCardAppUpdate.sendToTarget();
+
+        waitUntilReady();
         assertEquals(IccCardApplicationStatus.AppState.APPSTATE_PUK,
                 mUiccCardApplication.getState());
     }
@@ -127,14 +151,16 @@ public class UiccCardApplicationTest extends TelephonyTest {
         //enable FDN
         Message mFDNenabled = mHandler.obtainMessage(UICCCARDAPP_ENABLE_FDN_EVENT);
         //wrong PIN2Code
+        setReady(false);
         mUiccCardApplication.setIccFdnEnabled(true, "XXXX", mFDNenabled);
-        processAllMessages();
+        waitUntilReady();
         assertFalse(mUiccCardApplication.getIccFdnEnabled());
 
+        setReady(false);
         mFDNenabled = mHandler.obtainMessage(UICCCARDAPP_ENABLE_FDN_EVENT);
         mUiccCardApplication.setIccFdnEnabled(true, mSimulatedCommands.DEFAULT_SIM_PIN2_CODE,
                 mFDNenabled);
-        processAllMessages();
+        waitUntilReady();
         assertTrue(mUiccCardApplication.getIccFdnEnabled());
     }
 
@@ -143,14 +169,16 @@ public class UiccCardApplicationTest extends TelephonyTest {
     public void testGetSetIccLockedEnabled() {
         assertFalse(mUiccCardApplication.getIccLockEnabled());
         Message mLockEnabled = mHandler.obtainMessage(UICCCARDAPP_ENABLE_LOCK_EVENT);
+        setReady(false);
         mUiccCardApplication.setIccLockEnabled(true, "XXXX", mLockEnabled);
-        processAllMessages();
+        waitUntilReady();
         assertFalse(mUiccCardApplication.getIccLockEnabled());
 
         mLockEnabled = mHandler.obtainMessage(UICCCARDAPP_ENABLE_LOCK_EVENT);
+        setReady(false);
         mUiccCardApplication.setIccLockEnabled(true, mSimulatedCommands.DEFAULT_SIM_PIN_CODE,
                 mLockEnabled);
-        processAllMessages();
+        waitUntilReady();
         assertTrue(mUiccCardApplication.getIccLockEnabled());
     }
 
@@ -158,9 +186,10 @@ public class UiccCardApplicationTest extends TelephonyTest {
     @SmallTest
     public void testChangeIccLockPassword() {
         Message mChangePsw = mHandler.obtainMessage(UICCCARDAPP_CHANGE_PSW_EVENT);
+        setReady(false);
         mUiccCardApplication.changeIccLockPassword(mSimulatedCommands.DEFAULT_SIM_PIN_CODE,
                 "1111", mChangePsw);
-        processAllMessages();
+        waitUntilReady();
         verify(mSimulatedCommandsVerifier).changeIccPinForApp(
                 eq(mSimulatedCommands.DEFAULT_SIM_PIN_CODE), eq("1111"), eq(TAG), (Message) any());
         assertNull(mException);
@@ -171,16 +200,18 @@ public class UiccCardApplicationTest extends TelephonyTest {
     public void testSupplyPin() {
         //Supply with default PIN1
         Message mSupplyPin = mHandler.obtainMessage(UICCCARDAPP_SUPPLY_PIN_EVENT);
+        setReady(false);
         mUiccCardApplication.supplyPin(mSimulatedCommands.DEFAULT_SIM_PIN_CODE, mSupplyPin);
-        processAllMessages();
+        waitUntilReady();
         assertEquals(-1, mAttemptsRemaining);
         verify(mSimulatedCommandsVerifier).supplyIccPinForApp(
                 eq(SimulatedCommands.DEFAULT_SIM_PIN_CODE), eq(TAG), (Message) any());
 
         //Supply with wrong PIN1
         mSupplyPin = mHandler.obtainMessage(UICCCARDAPP_SUPPLY_PIN_EVENT);
+        setReady(false);
         mUiccCardApplication.supplyPin("1111", mSupplyPin);
-        processAllMessages();
+        waitUntilReady();
         assertEquals(mSimulatedCommands.DEFAULT_PIN1_ATTEMPT - 1, mAttemptsRemaining);
         assertNotNull(mException);
         assertEquals(CommandException.Error.PASSWORD_INCORRECT, mException.getCommandError());
@@ -188,8 +219,9 @@ public class UiccCardApplicationTest extends TelephonyTest {
         testChangeIccLockPassword();
         //Supply with the updated PIN1
         mSupplyPin = mHandler.obtainMessage(UICCCARDAPP_SUPPLY_PIN_EVENT);
+        setReady(false);
         mUiccCardApplication.supplyPin("1111", mSupplyPin);
-        processAllMessages();
+        waitUntilReady();
         assertEquals(-1, mAttemptsRemaining);
     }
 }

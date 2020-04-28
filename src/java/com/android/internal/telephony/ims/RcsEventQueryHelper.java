@@ -97,7 +97,7 @@ class RcsEventQueryHelper {
                         eventList.add(createNewGroupIconChangedEvent(cursor));
                         break;
                     default:
-                        Rlog.e(RcsMessageController.TAG,
+                        Rlog.e(RcsMessageStoreController.TAG,
                                 "RcsEventQueryHelper: invalid event type: " + eventType);
                 }
             }

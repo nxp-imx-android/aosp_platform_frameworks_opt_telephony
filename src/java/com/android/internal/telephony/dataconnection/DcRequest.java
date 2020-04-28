@@ -18,7 +18,7 @@ package com.android.internal.telephony.dataconnection;
 import android.content.Context;
 import android.net.NetworkConfig;
 import android.net.NetworkRequest;
-import android.telephony.Annotation.ApnType;
+import android.telephony.data.ApnSetting.ApnType;
 
 import java.util.HashMap;
 

@@ -75,10 +75,6 @@ public abstract class CallTracker extends Handler {
     protected static final int EVENT_THREE_WAY_DIAL_L2_RESULT_CDMA = 16;
     protected static final int EVENT_THREE_WAY_DIAL_BLANK_FLASH    = 20;
 
-    @UnsupportedAppUsage
-    public CallTracker() {
-    }
-
     protected void pollCallsWhenSafe() {
         mNeedsPoll = true;
 
@@ -295,18 +291,6 @@ public abstract class CallTracker extends Handler {
         }
         log("compareGid1 is " + (ret?"Same":"Different"));
         return ret;
-    }
-
-    /**
-     * Get the ringing connections which during SRVCC handover.
-     */
-    public Connection getRingingHandoverConnection() {
-        for (Connection hoConn : mHandoverConnections) {
-            if (hoConn.getCall().isRinging()) {
-                return hoConn;
-            }
-        }
-        return null;
     }
 
     //***** Overridden from Handler

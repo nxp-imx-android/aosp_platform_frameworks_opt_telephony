@@ -16,38 +16,58 @@
 
 package com.android.internal.telephony;
 
-import static org.junit.Assert.*;
-import static org.mockito.Mockito.*;
-
 import android.content.Intent;
+import android.os.HandlerThread;
 import android.os.Message;
 import android.provider.Telephony;
 import android.test.suitebuilder.annotation.SmallTest;
-import android.testing.AndroidTestingRunner;
-import android.testing.TestableLooper;
+import android.util.Log;
+
+import com.android.internal.telephony.test.SimulatedCommands;
+import com.android.internal.telephony.test.SimulatedCommandsVerifier;
 
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
-import org.junit.runner.RunWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.Mock;
+import org.mockito.MockitoAnnotations;
 
-@RunWith(AndroidTestingRunner.class)
-@TestableLooper.RunWithLooper
+import java.lang.reflect.Field;
+
+import static org.junit.Assert.*;
+import static org.mockito.Mockito.*;
+
 public class SmsStorageMonitorTest extends TelephonyTest {
 
     private SmsStorageMonitor mSmsStorageMonitor;
+    private SmsStorageMonitorTestHandler mSmsStorageMonitorTestHandler;
+
+    private class SmsStorageMonitorTestHandler extends HandlerThread {
+
+        private SmsStorageMonitorTestHandler(String name) {
+            super(name);
+        }
+
+        @Override
+        public void onLooperPrepared() {
+            mSmsStorageMonitor = new SmsStorageMonitor(mPhone);
+            setReady(true);
+        }
+    }
 
     @Before
     public void setUp() throws Exception {
         super.setUp(getClass().getSimpleName());
-        mSmsStorageMonitor = new SmsStorageMonitor(mPhone);
-        processAllMessages();
+        mSmsStorageMonitorTestHandler = new SmsStorageMonitorTestHandler(TAG);
+        mSmsStorageMonitorTestHandler.start();
+        waitUntilReady();
     }
 
     @After
     public void tearDown() throws Exception {
         mSmsStorageMonitor = null;
+        mSmsStorageMonitorTestHandler.quit();
         super.tearDown();
     }
 
@@ -55,7 +75,7 @@ public class SmsStorageMonitorTest extends TelephonyTest {
     public void testEventIccFull() {
         // Notify icc sms full
         mSimulatedCommands.notifyIccSmsFull();
-        processAllMessages();
+        TelephonyTestUtils.waitForMs(50);
 
         // SIM_FULL_ACTION intent should be broadcast
         ArgumentCaptor<Intent> intentArgumentCaptor = ArgumentCaptor.forClass(Intent.class);
@@ -68,7 +88,7 @@ public class SmsStorageMonitorTest extends TelephonyTest {
     public void testSmsMemoryStatus() {
         // Notify radio on
         mSimulatedCommands.notifyRadioOn();
-        processAllMessages();
+        TelephonyTestUtils.waitForMs(50);
 
         verify(mSimulatedCommandsVerifier, never()).reportSmsMemoryStatus(anyBoolean(),
                 any(Message.class));
@@ -76,26 +96,26 @@ public class SmsStorageMonitorTest extends TelephonyTest {
         // Send DEVICE_STORAGE_FULL
         mContextFixture.getTestDouble().sendBroadcast(
                 new Intent(Intent.ACTION_DEVICE_STORAGE_FULL));
-        processAllMessages();
+        TelephonyTestUtils.waitForMs(50);
 
         verify(mSimulatedCommandsVerifier).reportSmsMemoryStatus(eq(false), any(Message.class));
         assertFalse(mSmsStorageMonitor.isStorageAvailable());
 
         mSimulatedCommands.notifyRadioOn();
-        processAllMessages();
+        TelephonyTestUtils.waitForMs(50);
 
         verify(mSimulatedCommandsVerifier).reportSmsMemoryStatus(eq(false), any(Message.class));
 
         // Send DEVICE_STORAGE_NOT_FULL
         mContextFixture.getTestDouble().sendBroadcast(
                 new Intent(Intent.ACTION_DEVICE_STORAGE_NOT_FULL));
-        processAllMessages();
+        TelephonyTestUtils.waitForMs(50);
 
         verify(mSimulatedCommandsVerifier).reportSmsMemoryStatus(eq(true), any(Message.class));
         assertTrue(mSmsStorageMonitor.isStorageAvailable());
 
         mSimulatedCommands.notifyRadioOn();
-        processAllMessages();
+        TelephonyTestUtils.waitForMs(50);
 
         verify(mSimulatedCommandsVerifier).reportSmsMemoryStatus(eq(true), any(Message.class));
     }

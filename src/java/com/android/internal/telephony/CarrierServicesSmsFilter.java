@@ -23,10 +23,12 @@ import android.content.pm.ResolveInfo;
 import android.os.Binder;
 import android.os.Handler;
 import android.os.Message;
+import android.os.RemoteException;
 import android.service.carrier.CarrierMessagingService;
-import android.service.carrier.CarrierMessagingServiceWrapper;
-import android.service.carrier.CarrierMessagingServiceWrapper.CarrierMessagingCallbackWrapper;
+import android.service.carrier.ICarrierMessagingCallback;
+import android.service.carrier.ICarrierMessagingService;
 import android.service.carrier.MessagePdu;
+import android.telephony.CarrierMessagingServiceManager;
 import android.telephony.Rlog;
 import android.util.LocalLog;
 
@@ -191,7 +193,7 @@ public class CarrierServicesSmsFilter {
     }
 
     private void logv(String message) {
-        Rlog.v(mLogTag, message);
+        Rlog.e(mLogTag, message);
     }
 
     /**
@@ -207,7 +209,7 @@ public class CarrierServicesSmsFilter {
      * instructed to do so by the carrier messaging service. A new instance must be used for every
      * message.
      */
-    private final class CarrierSmsFilter extends CarrierMessagingServiceWrapper {
+    private final class CarrierSmsFilter extends CarrierMessagingServiceManager {
         private final byte[][] mPdus;
         private final int mDestPort;
         private final String mSmsFormat;
@@ -221,8 +223,8 @@ public class CarrierServicesSmsFilter {
         }
 
         /**
-         * Attempts to bind to a {@link CarrierMessagingService}. Filtering is initiated
-         * asynchronously once the service is ready using {@link #onServiceReady()}.
+         * Attempts to bind to a {@link ICarrierMessagingService}. Filtering is initiated
+         * asynchronously once the service is ready using {@link #onServiceReady}.
          */
         void filterSms(String carrierPackageName, CarrierSmsFilterCallback smsFilterCallback) {
             mSmsFilterCallback = smsFilterCallback;
@@ -239,12 +241,13 @@ public class CarrierServicesSmsFilter {
          * delivered to {@code smsFilterCallback}.
          */
         @Override
-        public void onServiceReady() {
+        protected void onServiceReady(ICarrierMessagingService carrierMessagingService) {
             try {
                 log("onServiceReady: calling filterSms");
-                filterSms(new MessagePdu(Arrays.asList(mPdus)), mSmsFormat, mDestPort,
+                carrierMessagingService.filterSms(
+                        new MessagePdu(Arrays.asList(mPdus)), mSmsFormat, mDestPort,
                         mPhone.getSubId(), mSmsFilterCallback);
-            } catch (RuntimeException e) {
+            } catch (RemoteException e) {
                 loge("Exception filtering the SMS: " + e);
                 mSmsFilterCallback.onFilterComplete(
                         CarrierMessagingService.RECEIVE_OPTIONS_DEFAULT);
@@ -256,15 +259,15 @@ public class CarrierServicesSmsFilter {
      * A callback used to notify the platform of the carrier messaging app filtering result. Once
      * the result is ready, the carrier messaging service connection is disposed.
      */
-    private final class CarrierSmsFilterCallback extends CarrierMessagingCallbackWrapper {
+    private final class CarrierSmsFilterCallback extends ICarrierMessagingCallback.Stub {
         private final FilterAggregator mFilterAggregator;
-        private final CarrierMessagingServiceWrapper mCarrierMessagingServiceWrapper;
+        private final CarrierMessagingServiceManager mCarrierMessagingServiceManager;
         private boolean mIsOnFilterCompleteCalled;
 
         CarrierSmsFilterCallback(FilterAggregator filterAggregator,
-                CarrierMessagingServiceWrapper carrierMessagingServiceWrapper) {
+                CarrierMessagingServiceManager carrierMessagingServiceManager) {
             mFilterAggregator = filterAggregator;
-            mCarrierMessagingServiceWrapper = carrierMessagingServiceWrapper;
+            mCarrierMessagingServiceManager = carrierMessagingServiceManager;
             mIsOnFilterCompleteCalled = false;
         }
 
@@ -278,7 +281,7 @@ public class CarrierServicesSmsFilter {
             // is run afterwards, we should not follow through
             if (!mIsOnFilterCompleteCalled) {
                 mIsOnFilterCompleteCalled = true;
-                mCarrierMessagingServiceWrapper.disposeConnection(mContext);
+                mCarrierMessagingServiceManager.disposeConnection(mContext);
                 mFilterAggregator.onFilterComplete(result);
             }
         }

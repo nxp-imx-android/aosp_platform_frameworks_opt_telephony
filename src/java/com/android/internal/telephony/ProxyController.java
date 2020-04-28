@@ -26,11 +26,11 @@ import android.os.PowerManager;
 import android.os.PowerManager.WakeLock;
 import android.telephony.RadioAccessFamily;
 import android.telephony.Rlog;
-import android.telephony.SubscriptionManager;
 import android.telephony.TelephonyManager;
 import android.util.Log;
 
-import com.android.internal.telephony.ims.RcsMessageController;
+import com.android.internal.telephony.ims.RcsMessageStoreController;
+import com.android.internal.telephony.uicc.UiccController;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -63,6 +63,10 @@ public class ProxyController {
     private static ProxyController sProxyController;
 
     private Phone[] mPhones;
+
+    private UiccController mUiccController;
+
+    private CommandsInterface[] mCi;
 
     private Context mContext;
 
@@ -105,9 +109,10 @@ public class ProxyController {
 
 
     //***** Class Methods
-    public static ProxyController getInstance(Context context, Phone[] phone, PhoneSwitcher ps) {
+    public static ProxyController getInstance(Context context, Phone[] phone,
+            UiccController uiccController, CommandsInterface[] ci, PhoneSwitcher ps) {
         if (sProxyController == null) {
-            sProxyController = new ProxyController(context, phone, ps);
+            sProxyController = new ProxyController(context, phone, uiccController, ci, ps);
         }
         return sProxyController;
     }
@@ -117,14 +122,17 @@ public class ProxyController {
         return sProxyController;
     }
 
-    private ProxyController(Context context, Phone[] phone, PhoneSwitcher phoneSwitcher) {
+    private ProxyController(Context context, Phone[] phone, UiccController uiccController,
+            CommandsInterface[] ci, PhoneSwitcher phoneSwitcher) {
         logd("Constructor - Enter");
 
         mContext = context;
         mPhones = phone;
+        mUiccController = uiccController;
+        mCi = ci;
         mPhoneSwitcher = phoneSwitcher;
 
-        RcsMessageController.init(context);
+        RcsMessageStoreController.init(context);
 
         mUiccPhoneBookController = new UiccPhoneBookController(mPhones);
         mPhoneSubInfoController = new PhoneSubInfoController(mContext, mPhones);
@@ -152,7 +160,7 @@ public class ProxyController {
     public void registerForAllDataDisconnected(int subId, Handler h, int what) {
         int phoneId = SubscriptionController.getInstance().getPhoneId(subId);
 
-        if (SubscriptionManager.isValidPhoneId(phoneId)) {
+        if (phoneId >= 0 && phoneId < TelephonyManager.getDefault().getPhoneCount()) {
             mPhones[phoneId].registerForAllDataDisconnected(h, what);
         }
     }
@@ -160,7 +168,7 @@ public class ProxyController {
     public void unregisterForAllDataDisconnected(int subId, Handler h) {
         int phoneId = SubscriptionController.getInstance().getPhoneId(subId);
 
-        if (SubscriptionManager.isValidPhoneId(phoneId)) {
+        if (phoneId >= 0 && phoneId < TelephonyManager.getDefault().getPhoneCount()) {
             mPhones[phoneId].unregisterForAllDataDisconnected(h);
         }
     }
@@ -169,7 +177,7 @@ public class ProxyController {
     public boolean areAllDataDisconnected(int subId) {
         int phoneId = SubscriptionController.getInstance().getPhoneId(subId);
 
-        if (SubscriptionManager.isValidPhoneId(phoneId)) {
+        if (phoneId >= 0 && phoneId < TelephonyManager.getDefault().getPhoneCount()) {
             return mPhones[phoneId].areAllDataDisconnected();
         } else {
             // if we can't find a phone for the given subId, it is disconnected.

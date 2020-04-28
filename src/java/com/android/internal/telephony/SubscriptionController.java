@@ -46,6 +46,7 @@ import android.telephony.RadioAccessFamily;
 import android.telephony.Rlog;
 import android.telephony.SubscriptionInfo;
 import android.telephony.SubscriptionManager;
+import android.telephony.SubscriptionManager.SimDisplayNameSource;
 import android.telephony.TelephonyManager;
 import android.telephony.UiccAccessRule;
 import android.telephony.UiccSlotInfo;
@@ -61,7 +62,6 @@ import com.android.internal.telephony.metrics.TelephonyMetrics;
 import com.android.internal.telephony.uicc.IccUtils;
 import com.android.internal.telephony.uicc.UiccCard;
 import com.android.internal.telephony.uicc.UiccController;
-import com.android.internal.telephony.util.TelephonyUtils;
 import com.android.internal.util.ArrayUtils;
 
 import java.io.FileDescriptor;
@@ -82,7 +82,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
 /**
- * Implementation of the ISub interface.
+ * SubscriptionController to provide an inter-process communication to
+ * access Sms in Icc.
  *
  * Any setters which take subId, slotIndex or phoneId as a parameter will throw an exception if the
  * parameter equals the corresponding INVALID_XXX_ID or DEFAULT_XXX_ID.
@@ -163,7 +164,18 @@ public class SubscriptionController extends ISub.Stub {
             SubscriptionManager.DISPLAY_NAME,
             SubscriptionManager.DATA_ENABLED_OVERRIDE_RULES));
 
-    public static SubscriptionController init(Context c) {
+    public static SubscriptionController init(Phone phone) {
+        synchronized (SubscriptionController.class) {
+            if (sInstance == null) {
+                sInstance = new SubscriptionController(phone);
+            } else {
+                Log.wtf(LOG_TAG, "init() called multiple times!  sInstance = " + sInstance);
+            }
+            return sInstance;
+        }
+    }
+
+    public static SubscriptionController init(Context c, CommandsInterface[] ci) {
         synchronized (SubscriptionController.class) {
             if (sInstance == null) {
                 sInstance = new SubscriptionController(c);
@@ -176,7 +188,8 @@ public class SubscriptionController extends ISub.Stub {
 
     @UnsupportedAppUsage
     public static SubscriptionController getInstance() {
-        if (sInstance == null) {
+        if (sInstance == null)
+        {
            Log.wtf(LOG_TAG, "getInstance null");
         }
 
@@ -184,11 +197,11 @@ public class SubscriptionController extends ISub.Stub {
     }
 
     protected SubscriptionController(Context c) {
-        internalInit(c);
+        init(c);
         migrateImsSettings();
     }
 
-    protected void internalInit(Context c) {
+    protected void init(Context c) {
         mContext = c;
         mTelephonyManager = TelephonyManager.from(mContext);
 
@@ -242,6 +255,22 @@ public class SubscriptionController extends ISub.Stub {
         ContentValues value = new ContentValues(1);
         value.put(SubscriptionManager.SIM_SLOT_INDEX, SubscriptionManager.INVALID_SIM_SLOT_INDEX);
         mContext.getContentResolver().update(SubscriptionManager.CONTENT_URI, value, null, null);
+    }
+
+    private SubscriptionController(Phone phone) {
+        mContext = phone.getContext();
+        mAppOps = mContext.getSystemService(AppOpsManager.class);
+
+        if(ServiceManager.getService("isub") == null) {
+                ServiceManager.addService("isub", this);
+        }
+
+        migrateImsSettings();
+
+        // clear SLOT_INDEX for all subs
+        clearSlotIndexForSubInfoRecords();
+
+        if (DBG) logdl("[SubscriptionController] init by Phone");
     }
 
     @UnsupportedAppUsage
@@ -422,8 +451,10 @@ public class SubscriptionController extends ISub.Stub {
             if (cursor != null) {
                 while (cursor.moveToNext()) {
                     SubscriptionInfo subInfo = getSubInfoRecord(cursor);
-                    if (subInfo != null) {
-                        if (subList == null) {
+                    if (subInfo != null)
+                    {
+                        if (subList == null)
+                        {
                             subList = new ArrayList<SubscriptionInfo>();
                         }
                         subList.add(subInfo);
@@ -1333,12 +1364,17 @@ public class SubscriptionController extends ISub.Stub {
         if (DBG) logdl("[clearSubInfoRecord]+ iccId:" + " slotIndex:" + slotIndex);
 
         // update simInfo db with invalid slot index
+        List<SubscriptionInfo> oldSubInfo = getSubInfoUsingSlotIndexPrivileged(slotIndex);
         ContentResolver resolver = mContext.getContentResolver();
         ContentValues value = new ContentValues(1);
-        value.put(SubscriptionManager.SIM_SLOT_INDEX, SubscriptionManager.INVALID_SIM_SLOT_INDEX);
-        String where = "(" + SubscriptionManager.SIM_SLOT_INDEX + "=" + slotIndex + ")";
-        resolver.update(SubscriptionManager.CONTENT_URI, value, where, null);
-
+        value.put(SubscriptionManager.SIM_SLOT_INDEX,
+                SubscriptionManager.INVALID_SIM_SLOT_INDEX);
+        if (oldSubInfo != null) {
+            for (int i = 0; i < oldSubInfo.size(); i++) {
+                resolver.update(SubscriptionManager.getUriForSubscriptionId(
+                        oldSubInfo.get(i).getSubscriptionId()), value, null, null);
+            }
+        }
         // Refresh the Cache of Active Subscription Info List
         refreshCachedActiveSubscriptionInfoList();
 
@@ -1506,30 +1542,27 @@ public class SubscriptionController extends ISub.Stub {
      * @param nameSource Source of display name
      * @return int representing the priority. Higher value means higher priority.
      */
-    public static int getNameSourcePriority(int nameSource) {
-        switch (nameSource) {
-            case SubscriptionManager.NAME_SOURCE_USER_INPUT:
-                return 3;
-            case SubscriptionManager.NAME_SOURCE_CARRIER:
-                return 2;
-            case SubscriptionManager.NAME_SOURCE_SIM_SOURCE:
-                return 1;
-            case SubscriptionManager.NAME_SOURCE_DEFAULT_SOURCE:
-            default:
-                return 0;
-        }
+    public static int getNameSourcePriority(@SimDisplayNameSource int nameSource) {
+        int index = Arrays.asList(
+                SubscriptionManager.NAME_SOURCE_DEFAULT_SOURCE,
+                SubscriptionManager.NAME_SOURCE_SIM_PNN,
+                SubscriptionManager.NAME_SOURCE_SIM_SPN,
+                SubscriptionManager.NAME_SOURCE_CARRIER,
+                SubscriptionManager.NAME_SOURCE_USER_INPUT // user has highest priority.
+        ).indexOf(nameSource);
+        return (index < 0) ? 0 : index;
     }
 
     /**
      * Set display name by simInfo index with name source
      * @param displayName the display name of SIM card
      * @param subId the unique SubInfoRecord index in database
-     * @param nameSource 0: NAME_SOURCE_DEFAULT_SOURCE, 1: NAME_SOURCE_SIM_SOURCE,
-     *                   2: NAME_SOURCE_USER_INPUT, 3: NAME_SOURCE_CARRIER
+     * @param nameSource SIM display name source
      * @return the number of records updated
      */
     @Override
-    public int setDisplayNameUsingSrc(String displayName, int subId, int nameSource) {
+    public int setDisplayNameUsingSrc(String displayName, int subId,
+                                      @SimDisplayNameSource int nameSource) {
         if (DBG) {
             logd("[setDisplayName]+  displayName:" + displayName + " subId:" + subId
                 + " nameSource:" + nameSource);
@@ -1549,20 +1582,16 @@ public class SubscriptionController extends ISub.Stub {
                         && (getNameSourcePriority(subInfo.getNameSource())
                                 > getNameSourcePriority(nameSource)
                         || (displayName != null && displayName.equals(subInfo.getDisplayName())))) {
+                    logd("Name source " + subInfo.getNameSource() + "'s priority "
+                            + getNameSourcePriority(subInfo.getNameSource()) + " is greater than "
+                            + "name source " + nameSource + "'s priority "
+                            + getNameSourcePriority(nameSource) + ", return now.");
                     return 0;
                 }
             }
             String nameToSet;
-            if (TextUtils.isEmpty(displayName) || displayName.trim().length() == 0) {
-                nameToSet = mTelephonyManager.getSimOperatorName(subId);
-                if (TextUtils.isEmpty(nameToSet)) {
-                    if (nameSource == SubscriptionManager.NAME_SOURCE_USER_INPUT
-                            && SubscriptionManager.isValidSlotIndex(getSlotIndex(subId))) {
-                        nameToSet = "CARD " + (getSlotIndex(subId) + 1);
-                    } else {
-                        nameToSet = mContext.getString(SubscriptionManager.DEFAULT_NAME_RES);
-                    }
-                }
+            if (displayName == null) {
+                nameToSet = mContext.getString(SubscriptionManager.DEFAULT_NAME_RES);
             } else {
                 nameToSet = displayName;
             }
@@ -2089,6 +2118,10 @@ public class SubscriptionController extends ISub.Stub {
         mLocalLog.log(msg);
     }
 
+    private static void slogd(String msg) {
+        Rlog.d(LOG_TAG, msg);
+    }
+
     @UnsupportedAppUsage
     private void logd(String msg) {
         Rlog.d(LOG_TAG, msg);
@@ -2218,7 +2251,7 @@ public class SubscriptionController extends ISub.Stub {
         int subId = Settings.Global.getInt(mContext.getContentResolver(),
                 Settings.Global.MULTI_SIM_VOICE_CALL_SUBSCRIPTION,
                 SubscriptionManager.INVALID_SUBSCRIPTION_ID);
-        if (VDBG) logd("[getDefaultVoiceSubId] subId=" + subId);
+        if (VDBG) slogd("[getDefaultVoiceSubId] subId=" + subId);
         return subId;
     }
 
@@ -2228,7 +2261,7 @@ public class SubscriptionController extends ISub.Stub {
         int subId = Settings.Global.getInt(mContext.getContentResolver(),
                 Settings.Global.MULTI_SIM_DATA_CALL_SUBSCRIPTION,
                 SubscriptionManager.INVALID_SUBSCRIPTION_ID);
-        if (VDBG) logd("[getDefaultDataSubId] subId=" + subId);
+        if (VDBG) logd("[getDefaultDataSubId] subId= " + subId);
         return subId;
     }
 
@@ -2355,7 +2388,7 @@ public class SubscriptionController extends ISub.Stub {
     public void sendDefaultChangedBroadcast(int subId) {
         // Broadcast an Intent for default sub change
         int phoneId = SubscriptionManager.getPhoneId(subId);
-        Intent intent = new Intent(SubscriptionManager.ACTION_DEFAULT_SUBSCRIPTION_CHANGED);
+        Intent intent = new Intent(TelephonyIntents.ACTION_DEFAULT_SUBSCRIPTION_CHANGED);
         intent.addFlags(Intent.FLAG_RECEIVER_REPLACE_PENDING
                 | Intent.FLAG_RECEIVER_INCLUDE_BACKGROUND);
         SubscriptionManager.putPhoneIdAndSubIdExtra(intent, phoneId, subId);
@@ -2611,7 +2644,7 @@ public class SubscriptionController extends ISub.Stub {
                 value.put(propKey, Integer.parseInt(propValue));
                 break;
             default:
-                if (DBG) logd("Invalid column name");
+                if (DBG) slogd("Invalid column name");
                 break;
         }
 
@@ -2699,16 +2732,16 @@ public class SubscriptionController extends ISub.Stub {
         return resultValue;
     }
 
-    private void printStackTrace(String msg) {
+    private static void printStackTrace(String msg) {
         RuntimeException re = new RuntimeException();
-        logd("StackTrace - " + msg);
+        slogd("StackTrace - " + msg);
         StackTraceElement[] st = re.getStackTrace();
         boolean first = true;
         for (StackTraceElement ste : st) {
             if (first) {
                 first = false;
             } else {
-                logd(ste.toString());
+                slogd(ste.toString());
             }
         }
     }
@@ -3739,7 +3772,7 @@ public class SubscriptionController extends ISub.Stub {
      */
     @NonNull
     public String getDataEnabledOverrideRules(int subId) {
-        return TelephonyUtils.emptyIfNull(getSubscriptionProperty(subId,
+        return TextUtils.emptyIfNull(getSubscriptionProperty(subId,
                 SubscriptionManager.DATA_ENABLED_OVERRIDE_RULES));
     }
 

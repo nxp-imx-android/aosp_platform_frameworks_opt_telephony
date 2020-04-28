@@ -72,18 +72,14 @@ import android.telephony.UssdResponse;
 import android.telephony.ims.ImsCallForwardInfo;
 import android.telephony.ims.ImsCallProfile;
 import android.telephony.ims.ImsReasonInfo;
-import android.telephony.ims.ImsSsData;
 import android.telephony.ims.ImsSsInfo;
-import android.telephony.ims.RegistrationManager;
 import android.text.TextUtils;
 
-import com.android.ims.FeatureConnector;
 import com.android.ims.ImsEcbm;
 import com.android.ims.ImsEcbmStateListener;
 import com.android.ims.ImsException;
 import com.android.ims.ImsManager;
 import com.android.ims.ImsUtInterface;
-import com.android.ims.RcsFeatureManager;
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.telephony.Call;
 import com.android.internal.telephony.CallForwardInfo;
@@ -112,7 +108,6 @@ import java.io.FileDescriptor;
 import java.io.PrintWriter;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.function.Consumer;
 
 /**
  * {@hide}
@@ -202,9 +197,6 @@ public class ImsPhone extends ImsPhoneBase {
     @UnsupportedAppUsage
     private ServiceState mSS = new ServiceState();
 
-    private RcsFeatureManager mRcsManager;
-    private final FeatureConnector<RcsFeatureManager> mRcsManagerConnector;
-
     // To redial silently through GSM or CDMA when dialing through IMS fails
     private String mLastDialString;
 
@@ -216,7 +208,7 @@ public class ImsPhone extends ImsPhoneBase {
 
     private final RegistrantList mSilentRedialRegistrants = new RegistrantList();
 
-    private int mImsRegistrationState = RegistrationManager.REGISTRATION_STATE_NOT_REGISTERED;
+    private boolean mImsRegistered = false;
 
     private boolean mRoaming = false;
 
@@ -235,18 +227,6 @@ public class ImsPhone extends ImsPhoneBase {
 
     protected void setCurrentSubscriberUris(Uri[] currentSubscriberUris) {
         this.mCurrentSubscriberUris = currentSubscriberUris;
-    }
-
-    @UnsupportedAppUsage
-    @Override
-    public void notifyCallForwardingIndicator() {
-        super.notifyCallForwardingIndicator();
-    }
-
-    @UnsupportedAppUsage
-    @Override
-    public void notifyPreciseCallStateChanged() {
-        super.notifyPreciseCallStateChanged();
     }
 
     @Override
@@ -329,35 +309,6 @@ public class ImsPhone extends ImsPhoneBase {
         mDefaultPhone.registerForServiceStateChanged(this, EVENT_SERVICE_STATE_CHANGED, null);
         // Force initial roaming state update later, on EVENT_CARRIER_CONFIG_CHANGED.
         // Settings provider or CarrierConfig may not be loaded now.
-
-        mRcsManagerConnector = new FeatureConnector<RcsFeatureManager>(mContext, mPhoneId,
-                new FeatureConnector.Listener<RcsFeatureManager>() {
-                    @Override
-                    public boolean isSupported() {
-                        if (!ImsManager.isImsSupportedOnDevice(mContext)) {
-                            return false;
-                        }
-                        if (!RcsFeatureManager.isRcsUceSupportedByCarrier(mContext, mPhoneId)) {
-                            return false;
-                        }
-                        return true;
-                    }
-
-                    @Override
-                    public RcsFeatureManager getFeatureManager() {
-                        return new RcsFeatureManager(mContext, mPhoneId);
-                    }
-
-                    @Override
-                    public void connectionReady(RcsFeatureManager manager) throws ImsException {
-                        mRcsManager = manager;
-                    }
-
-                    @Override
-                    public void connectionUnavailable() {
-                    }
-                }, mContext.getMainExecutor(), "ImsPhone");
-        mRcsManagerConnector.connect();
     }
 
     //todo: get rid of this function. It is not needed since parentPhone obj never changes
@@ -380,8 +331,6 @@ public class ImsPhone extends ImsPhoneBase {
             }
             mDefaultPhone.unregisterForServiceStateChanged(this);
         }
-
-        mRcsManagerConnector.disconnect();
     }
 
     @UnsupportedAppUsage
@@ -772,8 +721,6 @@ public class ImsPhone extends ImsPhoneBase {
     private Connection dialInternal(String dialString, DialArgs dialArgs,
                                     ResultReceiver wrappedCallback)
             throws CallStateException {
-
-        mLastDialString = dialString;
 
         // Need to make sure dialString gets parsed properly
         String newDialString = PhoneNumberUtils.stripSeparators(dialString);
@@ -1547,12 +1494,10 @@ public class ImsPhone extends ImsPhoneBase {
                 break;
 
             case EVENT_GET_CLIR_DONE:
-                ImsSsInfo ssInfo = (ImsSsInfo) ar.result;
+                Bundle ssInfo = (Bundle) ar.result;
                 int[] clirInfo = null;
                 if (ssInfo != null) {
-                    // Unfortunately callers still use the old {n,m} format of ImsSsInfo, so return
-                    // that for compatibility
-                    clirInfo = ssInfo.getCompatArray(ImsSsData.SS_CLIR);
+                    clirInfo = ssInfo.getIntArray(ImsPhoneMmiCode.UT_BUNDLE_KEY_CLIR);
                 }
                 sendResponse((Message) ar.userObj, clirInfo, ar.exception);
                 break;
@@ -1759,34 +1704,18 @@ public class ImsPhone extends ImsPhoneBase {
     }
 
     @Override
-    public void getImsRegistrationTech(Consumer<Integer> callback) {
-        mCT.getImsRegistrationTech(callback);
-    }
-
-    @Override
-    public void getImsRegistrationState(Consumer<Integer> callback) {
-        callback.accept(mImsRegistrationState);
-    }
-
-    @Override
     public Phone getDefaultPhone() {
         return mDefaultPhone;
     }
 
     @Override
     public boolean isImsRegistered() {
-        return mImsRegistrationState == RegistrationManager.REGISTRATION_STATE_REGISTERED;
+        return mImsRegistered;
     }
 
-    // Not used, but not removed due to UnsupportedAppUsage tag.
     @UnsupportedAppUsage
-    public void setImsRegistered(boolean isRegistered) {
-        mImsRegistrationState = isRegistered ? RegistrationManager.REGISTRATION_STATE_REGISTERED :
-                RegistrationManager.REGISTRATION_STATE_NOT_REGISTERED;
-    }
-
-    public void setImsRegistrationState(@RegistrationManager.ImsRegistrationState int value) {
-        mImsRegistrationState = value;
+    public void setImsRegistered(boolean value) {
+        mImsRegistered = value;
     }
 
     @Override
@@ -2058,7 +1987,7 @@ public class ImsPhone extends ImsPhoneBase {
         pw.println("  mIsPhoneInEcmState = " + isInEcm());
         pw.println("  mEcmExitRespRegistrant = " + mEcmExitRespRegistrant);
         pw.println("  mSilentRedialRegistrants = " + mSilentRedialRegistrants);
-        pw.println("  mImsRegistrationState = " + mImsRegistrationState);
+        pw.println("  mImsRegistered = " + mImsRegistered);
         pw.println("  mRoaming = " + mRoaming);
         pw.println("  mSsnRegistrants = " + mSsnRegistrants);
         pw.flush();

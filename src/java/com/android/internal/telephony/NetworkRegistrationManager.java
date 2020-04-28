@@ -38,7 +38,7 @@ import android.telephony.INetworkServiceCallback;
 import android.telephony.NetworkRegistrationInfo;
 import android.telephony.NetworkService;
 import android.telephony.Rlog;
-import android.telephony.SubscriptionManager;
+import android.telephony.TelephonyManager;
 import android.text.TextUtils;
 
 import java.util.Hashtable;
@@ -91,7 +91,10 @@ public class NetworkRegistrationManager extends Handler {
         mPhone = phone;
 
         String tagSuffix = "-" + ((transportType == AccessNetworkConstants.TRANSPORT_TYPE_WWAN)
-                ? "C" : "I") + "-" + mPhone.getPhoneId();
+                ? "C" : "I");
+        if (TelephonyManager.getDefault().getPhoneCount() > 1) {
+            tagSuffix += "-" + mPhone.getPhoneId();
+        }
         mTag = "NRM" + tagSuffix;
 
         mCarrierConfigManager = (CarrierConfigManager) phone.getContext().getSystemService(
@@ -101,9 +104,6 @@ public class NetworkRegistrationManager extends Handler {
         intentFilter.addAction(CarrierConfigManager.ACTION_CARRIER_CONFIG_CHANGED);
         phone.getContext().registerReceiverAsUser(mBroadcastReceiver, UserHandle.ALL,
                 intentFilter, null, null);
-        PhoneConfigurationManager.registerForMultiSimConfigChange(
-                this, EVENT_BIND_NETWORK_SERVICE, null);
-
         sendEmptyMessage(EVENT_BIND_NETWORK_SERVICE);
     }
 
@@ -116,7 +116,7 @@ public class NetworkRegistrationManager extends Handler {
     public void handleMessage(Message msg) {
         switch (msg.what) {
             case EVENT_BIND_NETWORK_SERVICE:
-                rebindService();
+                bindService();
                 break;
             default:
                 loge("Unhandled event " + msg.what);
@@ -235,45 +235,31 @@ public class NetworkRegistrationManager extends Handler {
         }
     }
 
-    private void unbindService() {
+    private void bindService() {
+        String packageName = getPackageName();
+        if (TextUtils.isEmpty(packageName)) {
+            loge("Can't find the binding package");
+            return;
+        }
+
+        if (TextUtils.equals(packageName, mTargetBindingPackageName)) {
+            logd("Service " + packageName + " already bound or being bound.");
+            return;
+        }
+
         if (mINetworkService != null && mINetworkService.asBinder().isBinderAlive()) {
-            logd("unbinding service");
             // Remove the network availability updater and then unbind the service.
             try {
                 mINetworkService.removeNetworkServiceProvider(mPhone.getPhoneId());
             } catch (RemoteException e) {
                 loge("Cannot remove data service provider. " + e);
             }
-        }
 
-        if (mServiceConnection != null) {
             mPhone.getContext().unbindService(mServiceConnection);
         }
-        mINetworkService = null;
-        mServiceConnection = null;
-        mTargetBindingPackageName = null;
-    }
 
-    private void bindService(String packageName) {
-        if (mPhone == null || !SubscriptionManager.isValidPhoneId(mPhone.getPhoneId())) {
-            loge("can't bindService with invalid phone or phoneId.");
-            return;
-        }
-
-        if (TextUtils.isEmpty(packageName)) {
-            loge("Can't find the binding package");
-            return;
-        }
-
-        Intent intent = null;
-        String className = getClassName();
-        if (TextUtils.isEmpty(className)) {
-            intent = new Intent(NetworkService.SERVICE_INTERFACE);
-            intent.setPackage(packageName);
-        } else {
-            ComponentName cm = new ComponentName(packageName, className);
-            intent = new Intent(NetworkService.SERVICE_INTERFACE).setComponent(cm);
-        }
+        Intent intent = new Intent(NetworkService.SERVICE_INTERFACE);
+        intent.setPackage(getPackageName());
 
         try {
             // We bind this as a foreground service because it is operating directly on the SIM,
@@ -290,19 +276,6 @@ public class NetworkRegistrationManager extends Handler {
         } catch (SecurityException e) {
             loge("bindService failed " + e);
         }
-    }
-
-    private void rebindService() {
-        String packageName = getPackageName();
-        // Do nothing if no need to rebind.
-        if (SubscriptionManager.isValidPhoneId(mPhone.getPhoneId())
-                && TextUtils.equals(packageName, mTargetBindingPackageName)) {
-            logd("Service " + packageName + " already bound or being bound.");
-            return;
-        }
-
-        unbindService();
-        bindService(packageName);
     }
 
     private String getPackageName() {
@@ -339,39 +312,6 @@ public class NetworkRegistrationManager extends Handler {
         return packageName;
     }
 
-    private String getClassName() {
-        String className;
-        int resourceId;
-        String carrierConfig;
-
-        switch (mTransportType) {
-            case AccessNetworkConstants.TRANSPORT_TYPE_WWAN:
-                resourceId = com.android.internal.R.string.config_wwan_network_service_class;
-                carrierConfig = CarrierConfigManager
-                        .KEY_CARRIER_NETWORK_SERVICE_WWAN_CLASS_OVERRIDE_STRING;
-                break;
-            case AccessNetworkConstants.TRANSPORT_TYPE_WLAN:
-                resourceId = com.android.internal.R.string.config_wlan_network_service_class;
-                carrierConfig = CarrierConfigManager
-                        .KEY_CARRIER_NETWORK_SERVICE_WLAN_CLASS_OVERRIDE_STRING;
-                break;
-            default:
-                throw new IllegalStateException("Transport type not WWAN or WLAN. type="
-                        + mTransportType);
-        }
-
-        // Read class name from resource overlay
-        className = mPhone.getContext().getResources().getString(resourceId);
-
-        PersistableBundle b = mCarrierConfigManager.getConfigForSubId(mPhone.getSubId());
-
-        if (b != null && !TextUtils.isEmpty(b.getString(carrierConfig))) {
-            // If carrier config overrides it, use the one from carrier config
-            className = b.getString(carrierConfig, className);
-        }
-
-        return className;
-    }
     private void logd(String msg) {
         Rlog.d(mTag, msg);
     }

@@ -32,10 +32,10 @@ import android.os.RegistrantList;
 import android.os.RemoteException;
 import android.os.UserHandle;
 import android.telephony.AccessNetworkConstants.AccessNetworkType;
-import android.telephony.Annotation.ApnType;
 import android.telephony.CarrierConfigManager;
 import android.telephony.Rlog;
 import android.telephony.data.ApnSetting;
+import android.telephony.data.ApnSetting.ApnType;
 import android.telephony.data.IQualifiedNetworksService;
 import android.telephony.data.IQualifiedNetworksServiceCallback;
 import android.telephony.data.QualifiedNetworksService;
@@ -238,23 +238,12 @@ public class AccessNetworksManager extends Handler {
      * configuration from carrier config if it exists. If not, read it from resources.
      */
     private void bindQualifiedNetworksService() {
-        Intent intent = null;
         String packageName = getQualifiedNetworksServicePackageName();
-        String className = getQualifiedNetworksServiceClassName();
 
         if (DBG) log("Qualified network service package = " + packageName);
         if (TextUtils.isEmpty(packageName)) {
             loge("Can't find the binding package");
             return;
-        }
-
-        if (TextUtils.isEmpty(className)) {
-            intent = new Intent(QualifiedNetworksService.QUALIFIED_NETWORKS_SERVICE_INTERFACE);
-            intent.setPackage(packageName);
-        } else {
-            ComponentName cm = new ComponentName(packageName, className);
-            intent = new Intent(QualifiedNetworksService.QUALIFIED_NETWORKS_SERVICE_INTERFACE)
-                    .setComponent(cm);
         }
 
         if (TextUtils.equals(packageName, mTargetBindingPackageName)) {
@@ -277,8 +266,11 @@ public class AccessNetworksManager extends Handler {
         try {
             mServiceConnection = new QualifiedNetworksServiceConnection();
             log("bind to " + packageName);
-            if (!mPhone.getContext().bindService(intent, mServiceConnection,
-                        Context.BIND_AUTO_CREATE)) {
+            if (!mPhone.getContext().bindService(
+                    new Intent(QualifiedNetworksService.QUALIFIED_NETWORKS_SERVICE_INTERFACE)
+                            .setPackage(packageName),
+                    mServiceConnection,
+                    Context.BIND_AUTO_CREATE)) {
                 loge("Cannot bind to the qualified networks service.");
                 return;
             }
@@ -314,30 +306,6 @@ public class AccessNetworksManager extends Handler {
         return packageName;
     }
 
-    /**
-     * Get the qualified network service class name.
-     *
-     * @return class name of the qualified networks service package.
-     */
-    private String getQualifiedNetworksServiceClassName() {
-        // Read package name from the resource
-        String className = mPhone.getContext().getResources().getString(
-                com.android.internal.R.string.config_qualified_networks_service_class);
-
-        PersistableBundle b = mCarrierConfigManager.getConfigForSubId(mPhone.getSubId());
-
-        if (b != null) {
-            // If carrier config overrides it, use the one from carrier config
-            String carrierConfigClassName =  b.getString(CarrierConfigManager
-                    .KEY_CARRIER_QUALIFIED_NETWORKS_SERVICE_CLASS_OVERRIDE_STRING);
-            if (!TextUtils.isEmpty(carrierConfigClassName)) {
-                if (DBG) log("Found carrier config override " + carrierConfigClassName);
-                className = carrierConfigClassName;
-            }
-        }
-
-        return className;
-    }
 
     private @NonNull List<QualifiedNetworks> getQualifiedNetworksList() {
         List<QualifiedNetworks> qualifiedNetworksList = new ArrayList<>();
