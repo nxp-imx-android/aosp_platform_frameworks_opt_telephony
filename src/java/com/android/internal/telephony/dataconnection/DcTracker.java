@@ -3416,8 +3416,7 @@ public class DcTracker extends Handler {
                 if (apn.canSupportNetworkType(
                         ServiceState.rilRadioTechnologyToNetworkType(radioTech))) {
                     int preferredApnSetId = getPreferredApnSetId();
-                    if (apn.isEmergencyApn()
-                            || preferredApnSetId == Telephony.Carriers.NO_APN_SET_ID
+                    if (preferredApnSetId == Telephony.Carriers.NO_APN_SET_ID
                             || preferredApnSetId == apn.getApnSetId()) {
                         if (VDBG) log("buildWaitingApns: adding apn=" + apn);
                         apnList.add(apn);
