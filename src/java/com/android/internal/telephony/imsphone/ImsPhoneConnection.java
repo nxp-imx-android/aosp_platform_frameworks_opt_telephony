@@ -1073,6 +1073,7 @@ public class ImsPhoneConnection extends Connection implements
                 mAudioCodec = localCallProfile.mMediaProfile.mAudioQuality;
                 mMetrics.writeAudioCodecIms(mOwner.mPhone.getPhoneId(), imsCall.getCallSession());
                 mOwner.getPhone().getVoiceCallSessionStats().onAudioCodecChanged(this, mAudioCodec);
+                changed = true;
             }
 
             if (localCallProfile != null
@@ -1549,6 +1550,7 @@ public class ImsPhoneConnection extends Connection implements
      */
     public void sendRtpHeaderExtensions(@NonNull Set<RtpHeaderExtension> rtpHeaderExtensions) {
         if (mImsCall == null) {
+            Rlog.w(LOG_TAG, "sendRtpHeaderExtensions: Not an IMS call");
             return;
         }
         Rlog.i(LOG_TAG, "sendRtpHeaderExtensions: numExtensions = " + rtpHeaderExtensions.size());
