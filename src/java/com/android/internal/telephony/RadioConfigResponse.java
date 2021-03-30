@@ -20,6 +20,8 @@ import static android.telephony.TelephonyManager.CAPABILITY_ALLOWED_NETWORK_TYPE
 import static android.telephony.TelephonyManager
         .CAPABILITY_NR_DUAL_CONNECTIVITY_CONFIGURATION_AVAILABLE;
 import static android.telephony.TelephonyManager.CAPABILITY_SECONDARY_LINK_BANDWIDTH_VISIBLE;
+import static android.telephony.TelephonyManager.CAPABILITY_SLICING_CONFIG_SUPPORTED;
+import static android.telephony.TelephonyManager.CAPABILITY_THERMAL_MITIGATION_DATA_THROTTLING;
 import static android.telephony.TelephonyManager.RadioInterfaceCapability;
 
 import android.hardware.radio.V1_0.RadioError;
@@ -141,7 +143,7 @@ public class RadioConfigResponse extends IRadioConfigResponse.Stub {
         }
 
         return new PhoneCapability(maxActiveVoiceCalls, maxActiveData, logicalModemList,
-                validationBeforeSwitchSupported, mRadioConfig.getDeviceNrCapability());
+                validationBeforeSwitchSupported, mRadioConfig.getDeviceNrCapabilities());
     }
     /**
      * Response function for IRadioConfig.getPhoneCapability().
@@ -306,6 +308,10 @@ public class RadioConfigResponse extends IRadioConfigResponse.Stub {
                 Rlog.d(TAG, "CAPABILITY_SECONDARY_LINK_BANDWIDTH_VISIBLE");
                 caps.add(CAPABILITY_NR_DUAL_CONNECTIVITY_CONFIGURATION_AVAILABLE);
                 Rlog.d(TAG, "CAPABILITY_NR_DUAL_CONNECTIVITY_CONFIGURATION_AVAILABLE");
+                caps.add(CAPABILITY_THERMAL_MITIGATION_DATA_THROTTLING);
+                Rlog.d(TAG, "CAPABILITY_THERMAL_MITIGATION_DATA_THROTTLING");
+                caps.add(CAPABILITY_SLICING_CONFIG_SUPPORTED);
+                Rlog.d(TAG, "CAPABILITY_SLICING_CONFIG_SUPPORTED");
             }
         }
         return caps;

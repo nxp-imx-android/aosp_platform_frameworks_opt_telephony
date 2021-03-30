@@ -99,6 +99,7 @@ import com.android.internal.util.IndentingPrintWriter;
 import com.android.internal.util.Protocol;
 import com.android.internal.util.State;
 import com.android.internal.util.StateMachine;
+import com.android.net.module.util.NetworkCapabilitiesUtils;
 import com.android.telephony.Rlog;
 
 import java.io.FileDescriptor;
@@ -111,6 +112,7 @@ import java.net.UnknownHostException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -888,8 +890,8 @@ public class DataConnection extends StateMachine {
         String dnn = null;
         String osAppId = null;
         if (cp.mApnContext.getApnTypeBitmask() == ApnSetting.TYPE_ENTERPRISE) {
-            // TODO(b/181916712): update osAppId to use NetworkCapability API once it's available
-            osAppId = ApnSetting.getApnTypesStringFromBitmask(mApnSetting.getApnTypeBitmask());
+            osAppId = NetworkCapabilities.getCapabilityCarrierName(
+                    NetworkCapabilities.NET_CAPABILITY_ENTERPRISE);
         } else {
             dnn = mApnSetting.getApnName();
         }
@@ -1595,9 +1597,20 @@ public class DataConnection extends StateMachine {
             log("updateLinkBandwidthsFromBandwidthEstimator, UL= "
                     + uplinkBandwidthKbps + " DL= " + downlinkBandwidthKbps);
         }
-        mDownlinkBandwidth = downlinkBandwidthKbps;
-        mUplinkBandwidth = uplinkBandwidthKbps;
+        boolean downlinkUpdated = false;
+        boolean uplinkUpdated = false;
+        if (downlinkBandwidthKbps > 0) {
+            mDownlinkBandwidth = downlinkBandwidthKbps;
+            downlinkUpdated = true;
+        }
+        if (uplinkBandwidthKbps > 0) {
+            mUplinkBandwidth = uplinkBandwidthKbps;
+            uplinkUpdated = true;
+        }
 
+        if (!downlinkUpdated || !uplinkUpdated) {
+            fallBackToCarrierConfigValues(downlinkUpdated, uplinkUpdated);
+        }
         if (mNetworkAgent != null) {
             mNetworkAgent.sendNetworkCapabilities(getNetworkCapabilities(), DataConnection.this);
         }
@@ -1754,11 +1767,11 @@ public class DataConnection extends StateMachine {
      * @return True if this data connection supports enterprise use.
      */
     private boolean isEnterpriseUse() {
-        // TODO(b/181916712): update osAppId to use NetworkCapability API once it's available
         boolean enterpriseTrafficDescriptor = mTrafficDescriptors
                 .stream()
                 .anyMatch(td -> td.getOsAppId() != null && td.getOsAppId().equals(
-                        ApnSetting.TYPE_ENTERPRISE_STRING));
+                        NetworkCapabilities.getCapabilityCarrierName(
+                                NetworkCapabilities.NET_CAPABILITY_ENTERPRISE)));
         boolean enterpriseApnContext = mApnContexts.keySet()
                 .stream()
                 .anyMatch(ac -> ac.getApnTypeBitmask() == ApnSetting.TYPE_ENTERPRISE);
@@ -1864,8 +1877,7 @@ public class DataConnection extends StateMachine {
             builder.removeCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED);
         }
 
-        // TODO: Need to remove the use of hidden API deduceRestrictedCapability
-        if (builder.build().deduceRestrictedCapability()) {
+        if (NetworkCapabilitiesUtils.inferRestrictedCapability(builder.build())) {
             builder.removeCapability(NetworkCapabilities.NET_CAPABILITY_NOT_RESTRICTED);
         }
 
@@ -1884,6 +1896,7 @@ public class DataConnection extends StateMachine {
 
         builder.setNetworkSpecifier(new TelephonyNetworkSpecifier.Builder()
                 .setSubscriptionId(mSubId).build());
+        builder.setSubIds(Collections.singleton(mSubId));
 
         if (!mPhone.getServiceState().getDataRoaming()) {
             builder.addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_ROAMING);
@@ -2720,6 +2733,9 @@ public class DataConnection extends StateMachine {
             final NetworkAgentConfig.Builder configBuilder = new NetworkAgentConfig.Builder();
             configBuilder.setLegacyType(ConnectivityManager.TYPE_MOBILE);
             configBuilder.setLegacyTypeName(NETWORK_TYPE);
+            int networkType = getNetworkType();
+            configBuilder.setLegacySubType(networkType);
+            configBuilder.setLegacySubTypeName(TelephonyManager.getNetworkTypeName(networkType));
             configBuilder.setLegacyExtraInfo(mApnSetting.getApnName());
             final CarrierSignalAgent carrierSignalAgent = mPhone.getCarrierSignalAgent();
             if (carrierSignalAgent.hasRegisteredReceivers(TelephonyManager
@@ -3090,7 +3106,7 @@ public class DataConnection extends StateMachine {
                     if (handle < 0) {
                         loge("No slot found for stopSocketKeepalive! " + slotId);
                         mNetworkAgent.sendSocketKeepaliveEvent(
-                                slotId, SocketKeepalive.NO_KEEPALIVE);
+                                slotId, SocketKeepalive.ERROR_NO_SUCH_SLOT);
                         retVal = HANDLED;
                         break;
                     } else {

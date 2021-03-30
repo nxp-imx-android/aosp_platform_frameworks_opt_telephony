@@ -32,6 +32,8 @@ import android.annotation.IntDef;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.app.AlarmManager;
+import android.app.Notification;
+import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.ProgressDialog;
 import android.content.ActivityNotFoundException;
@@ -62,6 +64,7 @@ import android.os.PersistableBundle;
 import android.os.RegistrantList;
 import android.os.SystemClock;
 import android.os.SystemProperties;
+import android.os.UserHandle;
 import android.preference.PreferenceManager;
 import android.provider.Settings;
 import android.provider.Settings.SettingNotFoundException;
@@ -99,6 +102,7 @@ import android.util.Pair;
 import android.util.SparseArray;
 import android.view.WindowManager;
 
+import com.android.internal.R;
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.telephony.DctConstants;
 import com.android.internal.telephony.EventLogTags;
@@ -118,6 +122,7 @@ import com.android.internal.telephony.dataconnection.DataEnabledSettings.DataEna
 import com.android.internal.telephony.metrics.DataStallRecoveryStats;
 import com.android.internal.telephony.metrics.TelephonyMetrics;
 import com.android.internal.telephony.util.ArrayUtils;
+import com.android.internal.telephony.util.NotificationChannelController;
 import com.android.internal.telephony.util.TelephonyUtils;
 import com.android.internal.util.AsyncChannel;
 import com.android.telephony.Rlog;
@@ -149,6 +154,7 @@ public class DcTracker extends Handler {
     private static final boolean VDBG = false; // STOPSHIP if true
     private static final boolean VDBG_STALL = false; // STOPSHIP if true
     private static final boolean RADIO_TESTS = false;
+    private static final String NOTIFICATION_TAG = DcTracker.class.getSimpleName();
 
     @IntDef(value = {
             REQUEST_TYPE_NORMAL,
@@ -254,6 +260,9 @@ public class DcTracker extends Handler {
     private static final String INTENT_DATA_STALL_ALARM_EXTRA_TAG = "data_stall_alarm_extra_tag";
     private static final String INTENT_DATA_STALL_ALARM_EXTRA_TRANSPORT_TYPE =
             "data_stall_alarm_extra_transport_type";
+
+    // Unique id for no data notification on setup data permanently failed.
+    private static final int NO_DATA_NOTIFICATION = 1001;
 
     /** The higher index has higher priority. */
     private static final DctConstants.State[] DATA_CONNECTION_STATE_PRIORITIES = {
@@ -2304,9 +2313,13 @@ public class DcTracker extends Handler {
 
     protected void startReconnect(long delay, ApnContext apnContext,
             @RequestNetworkType int requestType) {
+        apnContext.setState(DctConstants.State.RETRYING);
         Message msg = obtainMessage(DctConstants.EVENT_DATA_RECONNECT,
                        mPhone.getSubId(), requestType, apnContext);
         cancelReconnect(apnContext);
+
+        // Wait a bit before trying the next APN, so that
+        // we're not tying up the RIL command channel
         sendMessageDelayed(msg, delay);
 
         if (DBG) {
@@ -2919,6 +2932,16 @@ public class DcTracker extends Handler {
 
         startNetStatPoll();
         startDataStallAlarm(DATA_STALL_NOT_SUSPECTED);
+
+        PersistableBundle b = getCarrierConfig();
+        if (apnContext.getApnTypeBitmask() == ApnSetting.TYPE_DEFAULT
+                && b.getBoolean(CarrierConfigManager
+                .KEY_DISPLAY_NO_DATA_NOTIFICATION_ON_PERMANENT_FAILURE_BOOL)) {
+            NotificationManager notificationManager = (NotificationManager)
+                    mPhone.getContext().getSystemService(Context.NOTIFICATION_SERVICE);
+            notificationManager.cancel(Integer.toString(mPhone.getSubId()),
+                    NO_DATA_NOTIFICATION);
+        }
     }
 
     /**
@@ -2994,10 +3017,13 @@ public class DcTracker extends Handler {
                     mPhone.getContext().unregisterReceiver(mProvisionBroadcastReceiver);
                     mProvisionBroadcastReceiver = null;
                 }
+
                 if ((!isProvApn) || mIsProvisioning) {
-                    // Hide any provisioning notification.
-                    cm.setProvisioningNotificationVisible(false, ConnectivityManager.TYPE_MOBILE,
-                            INTENT_PROVISION + ":" + mPhone.getPhoneId());
+                    if (mIsProvisioning) {
+                        // Hide any notification that was showing previously
+                        hideProvisioningNotification();
+                    }
+
                     // Complete the connection normally notifying the world we're connected.
                     // We do this if this isn't a special provisioning apn or if we've been
                     // told its time to provision.
@@ -3021,9 +3047,10 @@ public class DcTracker extends Handler {
                             mTelephonyManager.getNetworkOperatorName());
                     mPhone.getContext().registerReceiver(mProvisionBroadcastReceiver,
                             new IntentFilter(INTENT_PROVISION));
+
                     // Put up user notification that sign-in is required.
-                    cm.setProvisioningNotificationVisible(true, ConnectivityManager.TYPE_MOBILE,
-                            INTENT_PROVISION + ":" + mPhone.getPhoneId());
+                    showProvisioningNotification();
+
                     // Turn off radio to save battery and avoid wasting carrier resources.
                     // The network isn't usable and network validation will just fail anyhow.
                     setRadio(false);
@@ -3085,6 +3112,34 @@ public class DcTracker extends Handler {
                 log("cause=" + DataFailCause.toString(cause)
                         + ", mark apn as permanent failed. apn = " + apn);
                 apnContext.markApnPermanentFailed(apn);
+
+                PersistableBundle b = getCarrierConfig();
+                if (apnContext.getApnTypeBitmask() == ApnSetting.TYPE_DEFAULT
+                        && b.getBoolean(CarrierConfigManager
+                        .KEY_DISPLAY_NO_DATA_NOTIFICATION_ON_PERMANENT_FAILURE_BOOL)) {
+                    NotificationManager notificationManager = (NotificationManager)
+                            mPhone.getContext().getSystemService(Context.NOTIFICATION_SERVICE);
+
+                    CharSequence title = mPhone.getContext().getText(
+                            com.android.internal.R.string.RestrictedOnDataTitle);
+                    CharSequence details = mPhone.getContext().getText(
+                            com.android.internal.R.string.RestrictedStateContent);
+
+                    Notification notification = new Notification.Builder(mPhone.getContext(),
+                            NotificationChannelController.CHANNEL_ID_MOBILE_DATA_STATUS)
+                            .setWhen(System.currentTimeMillis())
+                            .setAutoCancel(true)
+                            .setSmallIcon(com.android.internal.R.drawable.stat_sys_warning)
+                            .setTicker(title)
+                            .setColor(mPhone.getContext().getResources().getColor(
+                                    com.android.internal.R.color.system_notification_accent_color))
+                            .setContentTitle(title)
+                            .setStyle(new Notification.BigTextStyle().bigText(details))
+                            .setContentText(details)
+                            .build();
+                    notificationManager.notify(Integer.toString(mPhone.getSubId()),
+                            NO_DATA_NOTIFICATION, notification);
+                }
             }
 
             int newRequestType = calculateNewRetryRequestType(handoverFailureMode, requestType,
@@ -3111,10 +3166,6 @@ public class DcTracker extends Handler {
                         + ". Request type=" + requestTypeToString(requestType) + ", Retry in "
                         + delay + "ms.");
             }
-            apnContext.setState(DctConstants.State.RETRYING);
-            // Wait a bit before trying the next APN, so that
-            // we're not tying up the RIL command channel
-
             startReconnect(delay, apnContext, requestType);
         } else {
             // If we are not going to retry any APN, set this APN context to failed state.
@@ -4086,10 +4137,6 @@ public class DcTracker extends Handler {
         for (DataConnection dc : mDataConnections.values()) {
             dc.sendMessage(DataConnection.EVENT_CARRIER_CONFIG_LINK_BANDWIDTHS_CHANGED);
         }
-        if (mPhone.getLinkBandwidthEstimator() != null) {
-            mPhone.getLinkBandwidthEstimator().sendMessage(obtainMessage(
-                    LinkBandwidthEstimator.MSG_CARRIER_CONFIG_LINK_BANDWIDTHS_CHANGED));
-        }
     }
 
     /**
@@ -4387,7 +4434,7 @@ public class DcTracker extends Handler {
         boolean isNrNsa = (networkType == TelephonyManager.NETWORK_TYPE_LTE
                 || networkType == TelephonyManager.NETWORK_TYPE_LTE_CA)
                 && (overrideNetworkType == TelephonyDisplayInfo.OVERRIDE_NETWORK_TYPE_NR_NSA
-                || overrideNetworkType == TelephonyDisplayInfo.OVERRIDE_NETWORK_TYPE_NR_NSA_MMWAVE);
+                || overrideNetworkType == TelephonyDisplayInfo.OVERRIDE_NETWORK_TYPE_NR_ADVANCED);
         boolean is5GHysteresisActive = mPhone.getDisplayInfoController().is5GHysteresisActive();
 
         // True if device is on NR SA or NR NSA, or neither but 5G hysteresis is active
@@ -5339,6 +5386,9 @@ public class DcTracker extends Handler {
                     cleanUpAllConnectionsInternal(false, Phone.REASON_IWLAN_DATA_SERVICE_DIED);
                 }
             }
+        } else {
+            //reset throttling after binding to data service
+            mDataThrottler.reset();
         }
         mDataServiceBound = bound;
     }
@@ -5471,5 +5521,50 @@ public class DcTracker extends Handler {
      */
     public @NonNull DataThrottler getDataThrottler() {
         return mDataThrottler;
+    }
+
+    private void showProvisioningNotification() {
+        final Intent intent = new Intent(DcTracker.INTENT_PROVISION);
+        intent.putExtra(DcTracker.EXTRA_PROVISION_PHONE_ID, mPhone.getPhoneId());
+        final PendingIntent pendingIntent = PendingIntent.getBroadcast(
+                mPhone.getContext(), 0 /* requestCode */, intent, PendingIntent.FLAG_IMMUTABLE);
+
+        final Resources r = mPhone.getContext().getResources();
+        final String title = r.getString(R.string.network_available_sign_in, 0);
+        final String details = mTelephonyManager.getNetworkOperator(mPhone.getSubId());
+        final Notification.Builder builder = new Notification.Builder(mPhone.getContext())
+                .setWhen(System.currentTimeMillis())
+                .setSmallIcon(R.drawable.stat_notify_rssi_in_range)
+                .setChannelId(NotificationChannelController.CHANNEL_ID_MOBILE_DATA_STATUS)
+                .setAutoCancel(true)
+                .setTicker(title)
+                .setColor(mPhone.getContext().getColor(
+                        com.android.internal.R.color.system_notification_accent_color))
+                .setContentTitle(title)
+                .setContentText(details)
+                .setContentIntent(pendingIntent)
+                .setLocalOnly(true)
+                .setOnlyAlertOnce(true);
+
+        final Notification notification = builder.build();
+        try {
+            getNotificationManager().notify(NOTIFICATION_TAG, mPhone.getPhoneId(), notification);
+        } catch (final NullPointerException npe) {
+            Log.e(mLogTag, "showProvisioningNotification: error showing notification", npe);
+        }
+    }
+
+    private void hideProvisioningNotification() {
+        try {
+            getNotificationManager().cancel(NOTIFICATION_TAG, mPhone.getPhoneId());
+        } catch (final NullPointerException npe) {
+            Log.e(mLogTag, "hideProvisioningNotification: error hiding notification", npe);
+        }
+    }
+
+    private NotificationManager getNotificationManager() {
+        return (NotificationManager) mPhone.getContext()
+                .createContextAsUser(UserHandle.ALL, 0 /* flags */)
+                .getSystemService(Context.NOTIFICATION_SERVICE);
     }
 }
