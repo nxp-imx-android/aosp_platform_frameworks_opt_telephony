@@ -1929,11 +1929,18 @@ public class DcTracker extends Handler {
         }
 
         int preferredApnSetId = getPreferredApnSetId();
+        ApnSetting preferredApn = getPreferredApnFromDB();
         for (ApnSetting dunSetting : dunCandidates) {
             if (dunSetting.canSupportNetworkType(
                     ServiceState.rilRadioTechnologyToNetworkType(bearer))) {
                 if (preferredApnSetId == dunSetting.getApnSetId()) {
-                    retDunSettings.add(dunSetting);
+                    if (preferredApn != null && preferredApn.equals(dunSetting)) {
+                        // If there is a preferred APN can handled DUN type, prepend it to list to
+                        // use it preferred.
+                        retDunSettings.add(0, dunSetting);
+                    } else {
+                        retDunSettings.add(dunSetting);
+                    }
                 }
             }
         }
@@ -2060,8 +2067,10 @@ public class DcTracker extends Handler {
         // a dun-profiled connection so we can't share an existing one
         // On GSM/LTE we can share existing apn connections provided they support
         // this type.
-        if (!apnContext.getApnType().equals(ApnSetting.TYPE_DUN_STRING)
-                || ServiceState.isGsm(getDataRat())) {
+        // If asking for ENTERPRISE, there are no compatible data connections, so skip this check
+        if ((apnContext.getApnTypeBitmask() != ApnSetting.TYPE_DUN
+                || ServiceState.isGsm(getDataRat()))
+                && apnContext.getApnTypeBitmask() != ApnSetting.TYPE_ENTERPRISE) {
             dataConnection = checkForCompatibleDataConnection(apnContext, apnSetting);
             if (dataConnection != null) {
                 // Get the apn setting used by the data connection
@@ -2489,7 +2498,7 @@ public class DcTracker extends Handler {
                             }
                         }
                     }
-                } else if (apnSetting != null && apnSetting.canHandleType(apnType)) {
+                } else if (isApnSettingCompatible(curDc, apnType)) {
                     if (curDc.isActive()) {
                         if (DBG) {
                             log("checkForCompatibleDataConnection:"
@@ -2507,6 +2516,20 @@ public class DcTracker extends Handler {
             log("checkForCompatibleDataConnection: potential dc=" + potentialDc);
         }
         return potentialDc;
+    }
+
+    private boolean isApnSettingCompatible(DataConnection dc, int apnType) {
+        ApnSetting apnSetting = dc.getApnSetting();
+        if (apnSetting == null) return false;
+
+        // Nothing can be compatible with type ENTERPRISE
+        for (ApnContext apnContext : dc.getApnContexts()) {
+            if (apnContext.getApnTypeBitmask() == ApnSetting.TYPE_ENTERPRISE) {
+                return false;
+            }
+        }
+
+        return apnSetting.canHandleType(apnType);
     }
 
     private void addRequestNetworkCompleteMsg(Message onCompleteMsg,
