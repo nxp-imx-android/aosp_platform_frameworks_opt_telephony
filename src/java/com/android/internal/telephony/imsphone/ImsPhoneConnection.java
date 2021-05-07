@@ -49,6 +49,7 @@ import android.text.TextUtils;
 import com.android.ims.ImsCall;
 import com.android.ims.ImsException;
 import com.android.ims.internal.ImsVideoCallProviderWrapper;
+import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.telephony.CallStateException;
 import com.android.internal.telephony.Connection;
 import com.android.internal.telephony.Phone;
@@ -311,6 +312,10 @@ public class ImsPhoneConnection extends Connection implements
         }
     }
 
+    @VisibleForTesting
+    public void setTelephonyMetrics(TelephonyMetrics tm) {
+        mMetrics = tm;
+    }
 
     public void dispose() {
     }
@@ -1079,6 +1084,8 @@ public class ImsPhoneConnection extends Connection implements
                 }
             }
 
+            boolean mediaAttributesChanged = false;
+
             // Metrics for audio codec
             if (localCallProfile != null
                     && localCallProfile.mMediaProfile.mAudioQuality != mAudioCodec) {
@@ -1086,6 +1093,7 @@ public class ImsPhoneConnection extends Connection implements
                 mMetrics.writeAudioCodecIms(mOwner.mPhone.getPhoneId(), imsCall.getCallSession());
                 mOwner.getPhone().getVoiceCallSessionStats().onAudioCodecChanged(this, mAudioCodec);
                 changed = true;
+                mediaAttributesChanged = true;
             }
 
             if (localCallProfile != null
@@ -1097,13 +1105,22 @@ public class ImsPhoneConnection extends Connection implements
                         - audioCodecAttributes.getBitrateRangeKbps().getUpper()) > THRESHOLD) {
                     mAudioCodecBitrateKbps = audioCodecAttributes.getBitrateRangeKbps().getUpper();
                     changed = true;
+                    mediaAttributesChanged = true;
                 }
                 if (Math.abs(mAudioCodecBandwidthKhz
                         - audioCodecAttributes.getBandwidthRangeKhz().getUpper()) > THRESHOLD) {
                     mAudioCodecBandwidthKhz =
                             audioCodecAttributes.getBandwidthRangeKhz().getUpper();
                     changed = true;
+                    mediaAttributesChanged = true;
                 }
+            }
+
+            if (mediaAttributesChanged) {
+                Rlog.i(LOG_TAG, "updateMediaCapabilities: mediate attributes changed: codec = "
+                        + mAudioCodec + ", bitRate=" + mAudioCodecBitrateKbps + ", bandwidth="
+                        + mAudioCodecBandwidthKhz);
+                notifyMediaAttributesChanged();
             }
 
             int newAudioQuality =
