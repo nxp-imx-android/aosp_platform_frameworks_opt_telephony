@@ -589,6 +589,7 @@ public abstract class TelephonyTest {
                 eq(UiccController.APP_FAM_3GPP2));
         doReturn(mUiccCardApplicationIms).when(mUiccController).getUiccCardApplication(anyInt(),
                 eq(UiccController.APP_FAM_IMS));
+        doReturn(mUiccCard).when(mUiccController).getUiccCard(anyInt());
 
         doAnswer(new Answer<IccRecords>() {
             public IccRecords answer(InvocationOnMock invocation) {
@@ -931,6 +932,19 @@ public abstract class TelephonyTest {
         doReturn(hasCarrierPrivileges ? TelephonyManager.CARRIER_PRIVILEGE_STATUS_HAS_ACCESS
                 : TelephonyManager.CARRIER_PRIVILEGE_STATUS_NO_ACCESS).when(
                 mockTelephonyManager).getCarrierPrivilegeStatus(anyInt());
+    }
+
+    protected final void waitForDelayedHandlerAction(Handler h, long delayMillis,
+            long timeoutMillis) {
+        final CountDownLatch lock = new CountDownLatch(1);
+        h.postDelayed(lock::countDown, delayMillis);
+        while (lock.getCount() > 0) {
+            try {
+                lock.await(delayMillis + timeoutMillis, TimeUnit.MILLISECONDS);
+            } catch (InterruptedException e) {
+                // do nothing
+            }
+        }
     }
 
     protected final void waitForHandlerAction(Handler h, long timeoutMillis) {

@@ -36,10 +36,8 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import android.app.AlarmManager;
 import android.app.Notification;
 import android.app.NotificationManager;
-import android.app.PendingIntent;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
@@ -127,8 +125,6 @@ public class ServiceStateTrackerTest extends TelephonyTest {
     private ProxyController mProxyController;
     @Mock
     private Handler mTestHandler;
-    @Mock
-    protected AlarmManager mAlarmManager;
 
     private CellularNetworkService mCellularNetworkService;
 
@@ -234,8 +230,6 @@ public class ServiceStateTrackerTest extends TelephonyTest {
 
         logd("ServiceStateTrackerTest +Setup!");
         super.setUp("ServiceStateTrackerTest");
-
-        doReturn(mAlarmManager).when(mContext).getSystemService(eq(Context.ALARM_SERVICE));
 
         mContextFixture.putResource(R.string.config_wwan_network_service_package,
                 "com.android.phone");
@@ -1937,9 +1931,77 @@ public class ServiceStateTrackerTest extends TelephonyTest {
         waitForLastHandlerAction(mSSTTestHandler.getThreadHandler());
 
         sst.setImsRegistrationState(false);
-        verify(mAlarmManager).cancel(any(PendingIntent.class));
         waitForLastHandlerAction(mSSTTestHandler.getThreadHandler());
         assertEquals(TelephonyManager.RADIO_POWER_UNAVAILABLE, mSimulatedCommands.getRadioState());
+    }
+
+    @Test
+    @SmallTest
+    public void testImsRegisteredDelayShutDown() throws Exception {
+        doReturn(true).when(mPhone).isPhoneTypeGsm();
+        sst.setImsRegistrationState(true);
+        mSimulatedCommands.setRadioPowerFailResponse(false);
+        sst.setRadioPower(true);
+        waitForLastHandlerAction(mSSTTestHandler.getThreadHandler());
+
+        // Turn off the radio and ensure radio power is still on
+        assertEquals(TelephonyManager.RADIO_POWER_ON, mSimulatedCommands.getRadioState());
+        sst.setRadioPower(false);
+        waitForLastHandlerAction(mSSTTestHandler.getThreadHandler());
+        assertEquals(TelephonyManager.RADIO_POWER_ON, mSimulatedCommands.getRadioState());
+
+        // Now set IMS reg state to false and ensure we see the modem move to power off.
+        sst.setImsRegistrationState(false);
+        waitForLastHandlerAction(mSSTTestHandler.getThreadHandler());
+        assertEquals(TelephonyManager.RADIO_POWER_OFF, mSimulatedCommands.getRadioState());
+    }
+
+    @Test
+    @SmallTest
+    public void testImsRegisteredDelayShutDownTimeout() throws Exception {
+        doReturn(true).when(mPhone).isPhoneTypeGsm();
+        sst.setImsRegistrationState(true);
+        mSimulatedCommands.setRadioPowerFailResponse(false);
+        sst.setRadioPower(true);
+        waitForLastHandlerAction(mSSTTestHandler.getThreadHandler());
+
+        // Turn off the radio and ensure radio power is still on
+        assertEquals(TelephonyManager.RADIO_POWER_ON, mSimulatedCommands.getRadioState());
+        sst.setRadioPower(false);
+        waitForLastHandlerAction(mSSTTestHandler.getThreadHandler());
+        assertEquals(TelephonyManager.RADIO_POWER_ON, mSimulatedCommands.getRadioState());
+
+        // Ensure that if we never turn deregister for IMS, we still eventually see radio state
+        // move to off.
+        // Timeout for IMS reg + some extra time to remove race conditions
+        waitForDelayedHandlerAction(mSSTTestHandler.getThreadHandler(),
+                ServiceStateTracker.DELAY_RADIO_OFF_FOR_IMS_DEREG_TIMEOUT + 100, 1000);
+        waitForLastHandlerAction(mSSTTestHandler.getThreadHandler());
+        assertEquals(TelephonyManager.RADIO_POWER_OFF, mSimulatedCommands.getRadioState());
+    }
+
+    @Test
+    @SmallTest
+    public void testImsRegisteredAPMOnOffToggle() throws Exception {
+        doReturn(true).when(mPhone).isPhoneTypeGsm();
+        sst.setImsRegistrationState(true);
+        mSimulatedCommands.setRadioPowerFailResponse(false);
+        sst.setRadioPower(true);
+        waitForLastHandlerAction(mSSTTestHandler.getThreadHandler());
+
+        // Turn off the radio and ensure radio power is still on and then turn it back on again
+        assertEquals(TelephonyManager.RADIO_POWER_ON, mSimulatedCommands.getRadioState());
+        sst.setRadioPower(false);
+        waitForLastHandlerAction(mSSTTestHandler.getThreadHandler());
+        sst.setRadioPower(true);
+        assertEquals(TelephonyManager.RADIO_POWER_ON, mSimulatedCommands.getRadioState());
+
+        // Ensure the timeout was cancelled and we still see radio power is on.
+        // Timeout for IMS reg + some extra time to remove race conditions
+        waitForDelayedHandlerAction(mSSTTestHandler.getThreadHandler(),
+                ServiceStateTracker.DELAY_RADIO_OFF_FOR_IMS_DEREG_TIMEOUT + 100, 1000);
+        waitForLastHandlerAction(mSSTTestHandler.getThreadHandler());
+        assertEquals(TelephonyManager.RADIO_POWER_ON, mSimulatedCommands.getRadioState());
     }
 
     @Test
@@ -2053,6 +2115,64 @@ public class ServiceStateTrackerTest extends TelephonyTest {
                 new AsyncResult(sst.mPollingContext, badOpNamesResult, null)));
         waitForLastHandlerAction(mSSTTestHandler.getThreadHandler());
         assertEquals(null, sst.getServiceState().getOperatorAlpha());
+    }
+
+    @Test
+    public void testCSEmergencyRegistrationState() throws Exception {
+        CellIdentityGsm cellIdentity =
+                new CellIdentityGsm(0, 1, 900, 5, "001", "01", "test", "tst",
+                        Collections.emptyList());
+
+        NetworkRegistrationInfo dataReg = new NetworkRegistrationInfo(
+                NetworkRegistrationInfo.DOMAIN_PS, AccessNetworkConstants.TRANSPORT_TYPE_WWAN,
+                0, 16, 0, false, null, cellIdentity, getPlmnFromCellIdentity(cellIdentity),
+                1, false, false, false, null);
+
+        NetworkRegistrationInfo voiceReg = new NetworkRegistrationInfo(
+                NetworkRegistrationInfo.DOMAIN_CS, AccessNetworkConstants.TRANSPORT_TYPE_WWAN,
+                0, 16, 0, true, null, cellIdentity, getPlmnFromCellIdentity(cellIdentity),
+                false, 0, 0, 0);
+
+        sst.mPollingContext[0] = 2;
+        // update data reg state to be in oos
+        sst.sendMessage(sst.obtainMessage(
+                ServiceStateTracker.EVENT_POLL_STATE_PS_CELLULAR_REGISTRATION,
+                new AsyncResult(sst.mPollingContext, dataReg, null)));
+        waitForLastHandlerAction(mSSTTestHandler.getThreadHandler());
+        sst.sendMessage(sst.obtainMessage(
+                ServiceStateTracker.EVENT_POLL_STATE_CS_CELLULAR_REGISTRATION,
+                new AsyncResult(sst.mPollingContext, voiceReg, null)));
+        waitForLastHandlerAction(mSSTTestHandler.getThreadHandler());
+        assertTrue(sst.mSS.isEmergencyOnly());
+    }
+
+    @Test
+    public void testPSEmergencyRegistrationState() throws Exception {
+        CellIdentityGsm cellIdentity =
+                new CellIdentityGsm(0, 1, 900, 5, "001", "01", "test", "tst",
+                        Collections.emptyList());
+
+        NetworkRegistrationInfo dataReg = new NetworkRegistrationInfo(
+                NetworkRegistrationInfo.DOMAIN_PS, AccessNetworkConstants.TRANSPORT_TYPE_WWAN,
+                0, 16, 0, true, null, cellIdentity, getPlmnFromCellIdentity(cellIdentity),
+                1, false, false, false, null);
+
+        NetworkRegistrationInfo voiceReg = new NetworkRegistrationInfo(
+                NetworkRegistrationInfo.DOMAIN_CS, AccessNetworkConstants.TRANSPORT_TYPE_WWAN,
+                0, 16, 0, false, null, cellIdentity, getPlmnFromCellIdentity(cellIdentity),
+                false, 0, 0, 0);
+
+        sst.mPollingContext[0] = 2;
+        // update data reg state to be in oos
+        sst.sendMessage(sst.obtainMessage(
+                ServiceStateTracker.EVENT_POLL_STATE_PS_CELLULAR_REGISTRATION,
+                new AsyncResult(sst.mPollingContext, dataReg, null)));
+        waitForLastHandlerAction(mSSTTestHandler.getThreadHandler());
+        sst.sendMessage(sst.obtainMessage(
+                ServiceStateTracker.EVENT_POLL_STATE_CS_CELLULAR_REGISTRATION,
+                new AsyncResult(sst.mPollingContext, voiceReg, null)));
+        waitForLastHandlerAction(mSSTTestHandler.getThreadHandler());
+        assertTrue(sst.mSS.isEmergencyOnly());
     }
 
     // Edge and GPRS are grouped under the same family and Edge has higher rate than GPRS.
