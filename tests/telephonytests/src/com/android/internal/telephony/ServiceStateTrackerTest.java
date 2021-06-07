@@ -190,6 +190,7 @@ public class ServiceStateTrackerTest extends TelephonyTest {
         public void onLooperPrepared() {
             sst = new ServiceStateTracker(mPhone, mSimulatedCommands);
             sst.setServiceStateStats(mServiceStateStats);
+            doReturn(sst).when(mPhone).getServiceStateTracker();
             setReady(true);
         }
     }
@@ -405,33 +406,33 @@ public class ServiceStateTrackerTest extends TelephonyTest {
     public void testSetRadioPowerForReason() {
         // Radio does not turn on if off for other reason and not emergency call.
         assertTrue(mSimulatedCommands.getRadioState() == TelephonyManager.RADIO_POWER_ON);
-        assertTrue(sst.getRadioPowerOffReasonsForTest().isEmpty());
+        assertTrue(sst.getRadioPowerOffReasons().isEmpty());
         sst.setRadioPowerForReason(false, false, false, false, Phone.RADIO_POWER_REASON_THERMAL);
-        assertTrue(sst.getRadioPowerOffReasonsForTest().contains(Phone.RADIO_POWER_REASON_THERMAL));
-        assertTrue(sst.getRadioPowerOffReasonsForTest().size() == 1);
+        assertTrue(sst.getRadioPowerOffReasons().contains(Phone.RADIO_POWER_REASON_THERMAL));
+        assertTrue(sst.getRadioPowerOffReasons().size() == 1);
         waitForLastHandlerAction(mSSTTestHandler.getThreadHandler());
         assertTrue(mSimulatedCommands.getRadioState() == TelephonyManager.RADIO_POWER_OFF);
         sst.setRadioPowerForReason(true, false, false, false, Phone.RADIO_POWER_REASON_USER);
-        assertTrue(sst.getRadioPowerOffReasonsForTest().contains(Phone.RADIO_POWER_REASON_THERMAL));
-        assertTrue(sst.getRadioPowerOffReasonsForTest().size() == 1);
+        assertTrue(sst.getRadioPowerOffReasons().contains(Phone.RADIO_POWER_REASON_THERMAL));
+        assertTrue(sst.getRadioPowerOffReasons().size() == 1);
         waitForLastHandlerAction(mSSTTestHandler.getThreadHandler());
         assertTrue(mSimulatedCommands.getRadioState() == TelephonyManager.RADIO_POWER_OFF);
 
         // Radio power state reason is removed and radio turns on if turned on for same reason it
         // had been turned off for.
         sst.setRadioPowerForReason(true, false, false, false, Phone.RADIO_POWER_REASON_THERMAL);
-        assertTrue(sst.getRadioPowerOffReasonsForTest().isEmpty());
+        assertTrue(sst.getRadioPowerOffReasons().isEmpty());
         waitForLastHandlerAction(mSSTTestHandler.getThreadHandler());
         assertTrue(mSimulatedCommands.getRadioState() == TelephonyManager.RADIO_POWER_ON);
 
         // Turn radio off, then successfully turn radio on for emergency call.
         sst.setRadioPowerForReason(false, false, false, false, Phone.RADIO_POWER_REASON_THERMAL);
-        assertTrue(sst.getRadioPowerOffReasonsForTest().contains(Phone.RADIO_POWER_REASON_THERMAL));
-        assertTrue(sst.getRadioPowerOffReasonsForTest().size() == 1);
+        assertTrue(sst.getRadioPowerOffReasons().contains(Phone.RADIO_POWER_REASON_THERMAL));
+        assertTrue(sst.getRadioPowerOffReasons().size() == 1);
         waitForLastHandlerAction(mSSTTestHandler.getThreadHandler());
         assertTrue(mSimulatedCommands.getRadioState() == TelephonyManager.RADIO_POWER_OFF);
         sst.setRadioPower(true, true, true, false);
-        assertTrue(sst.getRadioPowerOffReasonsForTest().isEmpty());
+        assertTrue(sst.getRadioPowerOffReasons().isEmpty());
         waitForLastHandlerAction(mSSTTestHandler.getThreadHandler());
         assertTrue(mSimulatedCommands.getRadioState() == TelephonyManager.RADIO_POWER_ON);
     }
@@ -2672,7 +2673,7 @@ public class ServiceStateTrackerTest extends TelephonyTest {
         ss.setVoiceRegState(ServiceState.STATE_EMERGENCY_ONLY);
         ss.setDataRegState(ServiceState.STATE_OUT_OF_SERVICE);
         ss.setEmergencyOnly(true);
-        doReturn(ss).when(mSST).getServiceState();
+        sst.mSS = ss;
 
         // update the spn
         sst.updateSpnDisplay();
@@ -2694,7 +2695,7 @@ public class ServiceStateTrackerTest extends TelephonyTest {
         ss.setVoiceRegState(ServiceState.STATE_OUT_OF_SERVICE);
         ss.setDataRegState(ServiceState.STATE_OUT_OF_SERVICE);
         ss.setEmergencyOnly(false);
-        doReturn(ss).when(mSST).getServiceState();
+        sst.mSS = ss;
 
         // update the spn
         sst.updateSpnDisplay();
@@ -2715,7 +2716,7 @@ public class ServiceStateTrackerTest extends TelephonyTest {
         ServiceState ss = new ServiceState();
         ss.setVoiceRegState(ServiceState.STATE_POWER_OFF);
         ss.setDataRegState(ServiceState.STATE_POWER_OFF);
-        doReturn(ss).when(mSST).getServiceState();
+        sst.mSS = ss;
 
         // update the spn
         sst.updateSpnDisplay();
@@ -2735,7 +2736,7 @@ public class ServiceStateTrackerTest extends TelephonyTest {
         doReturn(ServiceState.STATE_POWER_OFF).when(mServiceState).getVoiceRegState();
         doReturn(ServiceState.STATE_POWER_OFF).when(mServiceState).getDataRegState();
         doReturn(TelephonyManager.NETWORK_TYPE_IWLAN).when(mServiceState).getDataNetworkType();
-        doReturn(mServiceState).when(mSST).getServiceState();
+        sst.mSS = mServiceState;
 
         // wifi-calling is disable
         doReturn(false).when(mPhone).isWifiCallingEnabled();
@@ -3026,5 +3027,48 @@ public class ServiceStateTrackerTest extends TelephonyTest {
         assertEquals(3, (long) method.invoke(mSST, tdscdmaCi));
         assertEquals(4, (long) method.invoke(mSST, lteCi));
         assertEquals(5, (long) method.invoke(mSST, nrCi));
+    }
+
+    @Test
+    public void testGetCombinedRegState() {
+        doReturn(mImsPhone).when(mPhone).getImsPhone();
+
+        // If voice/data out of service, return out of service.
+        doReturn(ServiceState.STATE_OUT_OF_SERVICE).when(mServiceState).getState();
+        doReturn(ServiceState.STATE_OUT_OF_SERVICE).when(mServiceState).getDataRegistrationState();
+        assertEquals(ServiceState.STATE_OUT_OF_SERVICE, sst.getCombinedRegState(mServiceState));
+
+        // If voice is emergency only, return emergency only
+        doReturn(ServiceState.STATE_EMERGENCY_ONLY).when(mServiceState).getState();
+        assertEquals(ServiceState.STATE_EMERGENCY_ONLY, sst.getCombinedRegState(mServiceState));
+
+        // If data in service, return in service.
+        doReturn(ServiceState.STATE_OUT_OF_SERVICE).when(mServiceState).getState();
+        doReturn(ServiceState.STATE_IN_SERVICE).when(mServiceState).getDataRegistrationState();
+        assertEquals(ServiceState.STATE_IN_SERVICE, sst.getCombinedRegState(mServiceState));
+
+        // Check emergency
+        doReturn(ServiceState.STATE_EMERGENCY_ONLY).when(mServiceState).getState();
+        assertEquals(ServiceState.STATE_EMERGENCY_ONLY, sst.getCombinedRegState(mServiceState));
+
+        // If data in service and network is IWLAN but WiFi calling is off, return out of service.
+        doReturn(ServiceState.STATE_OUT_OF_SERVICE).when(mServiceState).getState();
+        doReturn(TelephonyManager.NETWORK_TYPE_IWLAN).when(mServiceState).getDataNetworkType();
+        doReturn(false).when(mImsPhone).isWifiCallingEnabled();
+        assertEquals(ServiceState.STATE_OUT_OF_SERVICE, sst.getCombinedRegState(mServiceState));
+
+        // Check emrgency
+        doReturn(ServiceState.STATE_EMERGENCY_ONLY).when(mServiceState).getState();
+        assertEquals(ServiceState.STATE_EMERGENCY_ONLY, sst.getCombinedRegState(mServiceState));
+
+        // If data in service and network is IWLAN and WiFi calling is on, return in service.
+        doReturn(ServiceState.STATE_OUT_OF_SERVICE).when(mServiceState).getState();
+        doReturn(TelephonyManager.NETWORK_TYPE_IWLAN).when(mServiceState).getDataNetworkType();
+        doReturn(true).when(mImsPhone).isWifiCallingEnabled();
+        assertEquals(ServiceState.STATE_IN_SERVICE, sst.getCombinedRegState(mServiceState));
+
+        // Check emergency
+        doReturn(ServiceState.STATE_EMERGENCY_ONLY).when(mServiceState).getState();
+        assertEquals(ServiceState.STATE_EMERGENCY_ONLY, sst.getCombinedRegState(mServiceState));
     }
 }

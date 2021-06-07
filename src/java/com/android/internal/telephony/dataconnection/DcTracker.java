@@ -80,6 +80,7 @@ import android.telephony.CellLocation;
 import android.telephony.DataFailCause;
 import android.telephony.NetworkRegistrationInfo;
 import android.telephony.PcoData;
+import android.telephony.PreciseDataConnectionState;
 import android.telephony.ServiceState;
 import android.telephony.ServiceState.RilRadioTechnology;
 import android.telephony.SubscriptionManager;
@@ -1080,11 +1081,21 @@ public class DcTracker extends Handler {
         for (ApnConfigType apnConfigType : types) {
             ApnContext apnContext = new ApnContext(mPhone, apnConfigType.getType(), mLogTag, this,
                     apnConfigType.getPriority());
+            int bitmask = ApnSetting.getApnTypesBitmaskFromString(apnContext.getApnType());
             mPrioritySortedApnContexts.add(apnContext);
             mApnContexts.put(apnContext.getApnType(), apnContext);
-            mApnContextsByType.put(ApnSetting.getApnTypesBitmaskFromString(apnContext.getApnType()),
-                    apnContext);
-
+            mApnContextsByType.put(bitmask, apnContext);
+            // Notify listeners that all data is disconnected when DCT is initialized.
+            // Once connections are established, DC will then notify that data is connected.
+            // This is to prevent the case where the phone process crashed but we don't notify
+            // listeners that data was disconnected, so they may be stuck in a connected state.
+            mPhone.notifyDataConnection(new PreciseDataConnectionState.Builder()
+                    .setTransportType(mTransportType)
+                    .setState(TelephonyManager.DATA_DISCONNECTED)
+                    .setApnSetting(new ApnSetting.Builder()
+                            .setApnTypeBitmask(bitmask).buildWithoutCheck())
+                    .setNetworkType(getDataRat())
+                    .build());
             log("initApnContexts: apnContext=" + ApnSetting.getApnTypeString(
                     apnConfigType.getType()));
         }
@@ -1447,6 +1458,12 @@ public class DcTracker extends Handler {
             if (mTransportType != mPhone.getTransportManager().getCurrentTransport(
                     apnContext.getApnTypeBitmask()) && requestType != REQUEST_TYPE_HANDOVER) {
                 reasons.add(DataDisallowedReasonType.ON_OTHER_TRANSPORT);
+            }
+
+            // Check if the device is under data throttling.
+            long retryTime = mDataThrottler.getRetryTime(apnContext.getApnTypeBitmask());
+            if (retryTime > SystemClock.elapsedRealtime()) {
+                reasons.add(DataDisallowedReasonType.DATA_THROTTLED);
             }
         }
 
@@ -1847,6 +1864,9 @@ public class DcTracker extends Handler {
             apnContext.setState(DctConstants.State.IDLE);
             apnContext.setDataConnection(null);
         }
+
+        // If there is any outstanding handover request, we need to respond it.
+        sendHandoverCompleteMessages(apnContext.getApnTypeBitmask(), false, false);
 
         // Make sure reconnection alarm is cleaned up if there is no ApnContext
         // associated to the connection.
@@ -2516,14 +2536,17 @@ public class DcTracker extends Handler {
 
     private void onApnUnthrottled(String apn) {
         if (apn != null) {
-            ApnContext ac = mApnContexts.get(apn);
-            if (ac != null) {
-                @ApnType int apnTypes = ac.getApnTypeBitmask();
+            ApnSetting apnSetting = mAllApnSettings.stream()
+                    .filter(as -> apn.equals(as.getApnName()))
+                    .findFirst()
+                    .orElse(null);
+            if (apnSetting != null) {
+                @ApnType int apnTypes = apnSetting.getApnTypeBitmask();
                 mDataThrottler.setRetryTime(apnTypes, RetryManager.NO_SUGGESTED_RETRY_DELAY,
                         REQUEST_TYPE_NORMAL);
                 // After data unthrottled, we should see if it's possible to bring up the data
                 // again.
-                trySetupData(ac, REQUEST_TYPE_NORMAL, null);
+                setupDataOnAllConnectableApns(Phone.REASON_DATA_UNTHROTTLED, RetryFailures.ALWAYS);
             } else {
                 loge("EVENT_APN_UNTHROTTLED: Invalid APN passed: " + apn);
             }
@@ -2713,11 +2736,26 @@ public class DcTracker extends Handler {
             DctConstants.State state = apnContext.getState();
             switch(state) {
                 case CONNECTING:
-                case CONNECTED:
-                    if (DBG) log("onEnableApn: APN in " + state + " state. Exit now.");
                     if (onHandoverCompleteMsg != null) {
-                        sendHandoverCompleteMsg(onHandoverCompleteMsg, false, mTransportType,
+                        if (DBG) {
+                            log("onEnableApn: already in CONNECTING state. Handover request "
+                                    + "will be responded after connected.");
+                        }
+                        addHandoverCompleteMsg(onHandoverCompleteMsg, apnType);
+                    } else {
+                        if (DBG) log("onEnableApn: in CONNECTING state. Exit now.");
+                    }
+                    return;
+                case CONNECTED:
+                    if (onHandoverCompleteMsg != null) {
+                        sendHandoverCompleteMsg(onHandoverCompleteMsg, true, mTransportType,
                                 false);
+                        if (DBG) {
+                            log("onEnableApn: already in CONNECTED state. Consider as handover "
+                                    + "succeeded");
+                        }
+                    } else {
+                        if (DBG) log("onEnableApn: APN in CONNECTED state. Exit now.");
                     }
                     return;
                 case IDLE:
