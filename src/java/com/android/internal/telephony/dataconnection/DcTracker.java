@@ -1499,9 +1499,12 @@ public class DcTracker extends Handler {
             }
 
             // If the request is restricted and there are only soft disallowed reasons (e.g. data
-            // disabled, data roaming disabled) existing, we should allow the data.
+            // disabled, data roaming disabled) existing, we should allow the data. ENTERPRISE is
+            // an exception and should not be treated as restricted for this purpose; it should be
+            // treated same as DEFAULT.
             if (apnContext != null
                     && apnContext.hasRestrictedRequests(true)
+                    && !apnContext.getApnType().equals(ApnSetting.TYPE_ENTERPRISE_STRING)
                     && !reasons.allowed()) {
                 reasons.add(DataAllowedReasonType.RESTRICTED_REQUEST);
             }
@@ -1623,8 +1626,7 @@ public class DcTracker extends Handler {
             }
 
             // Check if it fails because of the existing data is still disconnecting.
-            if (dataConnectionReasons.containsOnly(
-                    DataDisallowedReasonType.DATA_IS_DISCONNECTING)
+            if (dataConnectionReasons.contains(DataDisallowedReasonType.DATA_IS_DISCONNECTING)
                     && isHandoverPending(apnContext.getApnTypeBitmask())) {
                 // Normally we don't retry when isDataAllow() returns false, because that's consider
                 // pre-condition not met, for example, data not enabled by the user, or airplane
@@ -2075,7 +2077,15 @@ public class DcTracker extends Handler {
         return null;
     }
 
-    boolean isPermanentFailure(@DataFailureCause int dcFailCause) {
+    /**
+     * Check if the data fail cause is a permanent failure (i.e. Frameworks will not retry data
+     * setup).
+     *
+     * @param dcFailCause The data fail cause
+     * @return {@code true} if the data fail cause is a permanent failure.
+     */
+    @VisibleForTesting
+    public boolean isPermanentFailure(@DataFailureCause int dcFailCause) {
         return (DataFailCause.isPermanentFailure(mPhone.getContext(), dcFailCause,
                 mPhone.getSubId())
                 && (mAttached.get() == false || dcFailCause != DataFailCause.SIGNAL_LOST));
@@ -2448,7 +2458,6 @@ public class DcTracker extends Handler {
         }
 
         mAutoAttachEnabled.set(false);
-        setDefaultDataRoamingEnabled();
         setDefaultPreferredApnIfNeeded();
         read5GConfiguration();
         registerSettingsObserver();
@@ -2488,6 +2497,7 @@ public class DcTracker extends Handler {
         readConfiguration();
 
         if (mSimState == TelephonyManager.SIM_STATE_LOADED) {
+            setDefaultDataRoamingEnabled();
             createAllApnList();
             setDataProfilesAsNeeded();
             setInitialAttachApn();
