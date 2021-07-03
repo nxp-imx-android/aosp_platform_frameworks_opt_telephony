@@ -200,7 +200,8 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
     // Single Radio Voice Call Continuity
     @VisibleForTesting
     protected static final int EVENT_SRVCC_STATE_CHANGED             = 31;
-    private static final int EVENT_INITIATE_SILENT_REDIAL           = 32;
+    @VisibleForTesting
+    public static final int EVENT_INITIATE_SILENT_REDIAL           = 32;
     private static final int EVENT_RADIO_NOT_AVAILABLE              = 33;
     private static final int EVENT_UNSOL_OEM_HOOK_RAW               = 34;
     protected static final int EVENT_GET_RADIO_CAPABILITY           = 35;
@@ -356,6 +357,11 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
     private static final boolean LCE_PULL_MODE = true;
     private int mLceStatus = RILConstants.LCE_NOT_AVAILABLE;
     protected TelephonyComponentFactory mTelephonyComponentFactory;
+    /**
+     * Should ALWAYS be {@code true} in production code.  This is used only used in tests so that we
+     * can disable the read checks which interfer with unit testing.
+     */
+    private boolean mAreThreadChecksEnabled = true;
 
     //IMS
     /**
@@ -452,7 +458,7 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
     private static final String ALLOWED_NETWORK_TYPES_TEXT_ENABLE_2G = "enable_2g";
     private static final int INVALID_ALLOWED_NETWORK_TYPES = -1;
     protected boolean mIsCarrierNrSupported = false;
-
+    protected boolean mIsAllowedNetworkTypesLoadedFromDb = false;
     private boolean mUnitTestMode;
     private CarrierPrivilegesTracker mCarrierPrivilegesTracker = null;
 
@@ -737,7 +743,7 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
                 break;
 
             case EVENT_INITIATE_SILENT_REDIAL:
-                Rlog.d(LOG_TAG, "Event EVENT_INITIATE_SILENT_REDIAL Received");
+                Rlog.i(LOG_TAG, "Event EVENT_INITIATE_SILENT_REDIAL Received");
                 ar = (AsyncResult) msg.obj;
                 if ((ar.exception == null) && (ar.result != null)) {
                     SilentRedialParam result = (SilentRedialParam) ar.result;
@@ -747,16 +753,12 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
                     if (TextUtils.isEmpty(dialString)) return;
                     try {
                         Connection cn = dialInternal(dialString, dialArgs);
-                        Rlog.d(LOG_TAG, "Notify redial connection changed cn: " + cn);
-                        if (mImsPhone != null) {
-                            // Don't care it is null or not.
-                            mImsPhone.notifyRedialConnectionChanged(cn);
-                        }
+                        Rlog.i(LOG_TAG, "Notify redial connection changed cn: " + cn);
+                        notifyRedialConnectionChanged(cn);
                     } catch (CallStateException e) {
-                        Rlog.e(LOG_TAG, "silent redial failed: " + e);
-                        if (mImsPhone != null) {
-                            mImsPhone.notifyRedialConnectionChanged(null);
-                        }
+                        Rlog.e(LOG_TAG, "Notify redial connection changed - silent redial failed: "
+                                + e);
+                        notifyRedialConnectionChanged(null);
                     }
                 }
                 break;
@@ -1762,6 +1764,9 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
      * the thread that originally obtained this Phone instance.
      */
     private void checkCorrectThread(Handler h) {
+        if (!mAreThreadChecksEnabled) {
+            return;
+        }
         if (h.getLooper() != mLooper) {
             throw new RuntimeException(
                     "com.android.internal.telephony.Phone must be used from within one thread");
@@ -2309,6 +2314,7 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
      * Loads the allowed network type from subscription database.
      */
     public void loadAllowedNetworksFromSubscriptionDatabase() {
+        mIsAllowedNetworkTypesLoadedFromDb = false;
         // Try to load ALLOWED_NETWORK_TYPES from SIMINFO.
         if (SubscriptionController.getInstance() == null) {
             return;
@@ -2348,6 +2354,7 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
                     }
                 }
             }
+            mIsAllowedNetworkTypesLoadedFromDb = true;
         } catch (NumberFormatException e) {
             Rlog.e(LOG_TAG, "allowedNetworkTypes NumberFormat exception" + e);
         }
@@ -2420,8 +2427,10 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
             loge("setAllowedNetworkTypes: Invalid allowed network type reason: " + reason);
             return;
         }
-        if (!SubscriptionManager.isUsableSubscriptionId(subId)) {
-            loge("setAllowedNetworkTypes: Invalid subscriptionId: " + subId);
+        if (!SubscriptionManager.isUsableSubscriptionId(subId)
+                || !mIsAllowedNetworkTypesLoadedFromDb) {
+            loge("setAllowedNetworkTypes: no sim or network type is not loaded. SubscriptionId: "
+                    + subId + ", isNetworkTypeLoaded" + mIsAllowedNetworkTypesLoadedFromDb);
             return;
         }
         String mapAsString = "";
@@ -4371,7 +4380,9 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
 
     public void sendSubscriptionSettings(boolean restoreNetworkSelection) {
         // Send settings down
-        updateAllowedNetworkTypes(null);
+        if (mIsAllowedNetworkTypesLoadedFromDb) {
+            updateAllowedNetworkTypes(null);
+        }
 
         if (restoreNetworkSelection) {
             restoreSavedNetworkSelection(null);
@@ -5023,5 +5034,14 @@ public abstract class Phone extends Handler implements PhoneInternalInterface {
 
     private static String pii(String s) {
         return Rlog.pii(LOG_TAG, s);
+    }
+
+    /**
+     * Used in unit tests to disable the thread checks.  Should not be used otherwise.
+     * @param enabled {@code true} if thread checks are enabled, {@code false} otherwise.
+     */
+    @VisibleForTesting
+    public void setAreThreadChecksEnabled(boolean enabled) {
+        mAreThreadChecksEnabled = enabled;
     }
 }
